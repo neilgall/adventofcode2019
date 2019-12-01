@@ -7,9 +7,9 @@ moduleFuel :: Int -> Int
 moduleFuel mass = (mass `div` 3) - 2
 
 fuelFuel :: Int -> Int
-fuelFuel fuel
-  | moduleFuel fuel <= 0 = fuel
-  | otherwise = fuel + fuelFuel (moduleFuel fuel)
+fuelFuel fuel = fuel + fuel' (moduleFuel fuel)
+  where
+    fuel' f = if f <= 0 then 0 else fuelFuel f 
 
 part1 :: [Int] -> Int
 part1 = sum . map moduleFuel
