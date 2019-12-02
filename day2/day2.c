@@ -114,11 +114,15 @@ void part1(struct program *original) {
 void part2(struct program *original) {
 	opcode noun = 0;
 	opcode verb = 0;
+	int result = 0;
 	while (noun < 100 && verb < 100) {
 		struct program *program = copy_program(original);
 		write_program(program, 1, noun);
 		write_program(program, 2, verb);
-		if (run_program(program, 0) == 0 && program->base[0] == 19690720) {
+		int result = run_program(program, 0) == 0 && program->base[0] == 19690720;
+		free(program);
+
+		if (result) {
 			break;
 		}
 
