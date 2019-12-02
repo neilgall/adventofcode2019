@@ -37,14 +37,27 @@ struct program *load_program(char *filename) {
 	return program;
 }
 
-opcode read_program(struct program *program, size_t pos) {
-	assert(pos < program->size);
-	return program->base[pos];
+struct program *copy_program(struct program *program) {
+	size_t size = program_size(program->size);
+	struct program *copy = (struct program *)malloc(size);
+	memcpy(copy, program, size);
+	return copy;
 }
 
-void write_program(struct program *program, size_t pos, opcode value) {
-	assert(pos < program->size);
+int read_program(struct program *program, size_t pos, opcode *x) {
+	if (pos >= program->size) {
+		return 1;
+	}
+	*x = program->base[pos];
+	return 0;
+}
+
+int write_program(struct program *program, size_t pos, opcode value) {
+	if (pos >= program->size) {
+		return 1;
+	}
 	program->base[pos] = value;
+	return 0;
 }
 
 void print_program(struct program *program) {
@@ -55,32 +68,64 @@ void print_program(struct program *program) {
 	printf("\n");
 }
 
-void run_program(struct program *program, int debug) {
+int run_program(struct program *program, int debug) {
 	size_t pc = 0;
 	opcode i;
-	while ((i = read_program(program, pc)) != 99) {
-		opcode x = read_program(program, read_program(program, pc+1));
-		opcode y = read_program(program, read_program(program, pc+2));
-		opcode z = read_program(program, pc+3);
+	while (read_program(program, pc, &i) == 0 && i != 99) {
+		opcode x, y, z;
+		if (read_program(program, pc+1, &x) != 0) return 1;
+		if (read_program(program, x,    &x) != 0) return 1;
+		if (read_program(program, pc+2, &y) != 0) return 1;
+		if (read_program(program, y,    &y) != 0) return 1;
+		if (read_program(program, pc+3, &z) != 0) return 1;
 		if (debug) printf("pc=%u i=%u x=%u y=%u z=%u\n", pc, i, x, y, z);
 		switch (i) {
 			case 1: 
-				write_program(program, z, x + y);
+				if (write_program(program, z, x + y) != 0) return 1;
 				break;
 			case 2:
-				write_program(program, z, x * y);
+				if (write_program(program, z, x * y) != 0) return 1;
 				break;
 			default:
-				assert(0);
+				return 1;
 		}
 		if (debug) print_program(program);
 		pc += 4;
 	}
+	return 0;
 }
 
 void modify_program(struct program *program) {
 	program->base[1] = 12;
 	program->base[2] = 2;
+}
+
+void part1(struct program *original) {
+	printf("Part 1\n");
+	struct program *program = copy_program(original);
+	modify_program(program);
+	run_program(program, 0);
+	print_program(program);
+	free(program);	
+}
+
+void part2(struct program *original) {
+	opcode noun = 0;
+	opcode verb = 0;
+	while (noun < 100 && verb < 100) {
+		struct program *program = copy_program(original);
+		write_program(program, 1, noun);
+		write_program(program, 2, verb);
+		if (run_program(program, 0) == 0 && program->base[0] == 19690720) {
+			printf("noun = %u\nverb = %u\nresult = %u\n", noun, verb, 100*noun+verb);
+			return;
+		}
+
+		if (++noun > 99) {
+			noun = 0;
+			++verb;
+		}
+	}
 }
 
 static struct program test_program = {
@@ -89,20 +134,12 @@ static struct program test_program = {
 };
 
 int main(int argc, char **argv) {
-	struct program *program;
-	if (argc < 2) {
-		program = load_program("input.txt");
-		modify_program(program);
-	} else {
-		program = &test_program;
-	}
-
-	run_program(program, 0);
-	print_program(program);
+	struct program *program = (argc < 2) ? load_program("input.txt") : &test_program;
+	part1(program);
+	part2(program);
 
 	if (program != &test_program) {
 		free(program);
 	}
-
 	return 0;
 }
