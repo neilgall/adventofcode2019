@@ -119,8 +119,7 @@ void part2(struct program *original) {
 		write_program(program, 1, noun);
 		write_program(program, 2, verb);
 		if (run_program(program, 0) == 0 && program->base[0] == 19690720) {
-			printf("noun = %u\nverb = %u\nresult = %u\n", noun, verb, 100*noun+verb);
-			return;
+			break;
 		}
 
 		if (++noun > 99) {
@@ -128,6 +127,7 @@ void part2(struct program *original) {
 			++verb;
 		}
 	}
+	printf("Part 2\nnoun = %u\nverb = %u\nresult = %u\n", noun, verb, 100*noun+verb);
 }
 
 static struct program test_program = {
