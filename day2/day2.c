@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <assert.h>
 
 typedef unsigned int opcode;
@@ -19,9 +20,9 @@ struct program *load_program(char *filename) {
 	size_t pos = 0;
 	opcode cur = 0;
 	FILE *f = fopen(filename, "rt");
-	int c;
-	while ((c = fgetc(f)) != EOF) {
-		if (c == ',') {
+	for (;;) {
+		int c = fgetc(f);
+		if (c == EOF || c == ',') {
 			if (pos == size) {
 				size *= 2;
 				program = (struct program *)realloc(program, program_size(size));
@@ -31,6 +32,7 @@ struct program *load_program(char *filename) {
 		} else if ('0' <= c && c <= '9') {
 			cur = (cur * 10) + (c - '0');
 		}
+		if (c == EOF) break;
 	}
 	fclose(f);
 	program->size = pos;
