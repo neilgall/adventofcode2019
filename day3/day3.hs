@@ -2,27 +2,28 @@
 
 import Data.Ord (comparing)
 import Data.Foldable (minimumBy)
-import Data.Maybe (catMaybes, maybeToList)
+import Data.Maybe (maybeToList)
 import qualified Data.Text as T
 import Test.Hspec
 
 data Direction = U | D | L | R 
   deriving (Eq, Show)
 
+data Move = Move Direction Int
+  deriving (Eq, Show)
+
 data Point = Point Int Int
   deriving (Eq, Show)
 
-data SegmentDescriptor = SegmentDescriptor Direction Int
+-- A Segment is the distance to its end and the start and end points
+data Segment = Segment Int Point Point
   deriving (Eq, Show)
 
-data SegmentLine = SegmentLine Int Point Point
-  deriving (Eq, Show)
-
-type WireDescriptor = [SegmentDescriptor]
-type Wire = [SegmentLine]
-
+-- An Intersection is the crossing point and the distance along each wire to that point
 data Intersection = Intersection Point Int Int
   deriving (Show)
+
+type Wire = [Segment]
 
 manhattan :: Point -> Int
 manhattan (Point x y) = (abs x) + (abs y)
@@ -30,30 +31,30 @@ manhattan (Point x y) = (abs x) + (abs y)
 centralPort :: Point
 centralPort = Point 0 0
 
-expandWire :: WireDescriptor -> Wire
+expandWire :: [Move] -> Wire
 expandWire segs = tail segments
   where
-    follow (SegmentLine len _ (Point x y)) (SegmentDescriptor U n) = SegmentLine (len+n) (Point x (y+1)) (Point x (y+n))
-    follow (SegmentLine len _ (Point x y)) (SegmentDescriptor D n) = SegmentLine (len+n) (Point x (y-1)) (Point x (y-n))
-    follow (SegmentLine len _ (Point x y)) (SegmentDescriptor L n) = SegmentLine (len+n) (Point (x-1) y) (Point (x-n) y)
-    follow (SegmentLine len _ (Point x y)) (SegmentDescriptor R n) = SegmentLine (len+n) (Point (x+1) y) (Point (x+n) y)
-    segments = scanl follow (SegmentLine 0 centralPort centralPort) segs
+    follow (Segment len _ (Point x y)) (Move U n) = Segment (len+n) (Point x (y+1)) (Point x (y+n))
+    follow (Segment len _ (Point x y)) (Move D n) = Segment (len+n) (Point x (y-1)) (Point x (y-n))
+    follow (Segment len _ (Point x y)) (Move L n) = Segment (len+n) (Point (x-1) y) (Point (x-n) y)
+    follow (Segment len _ (Point x y)) (Move R n) = Segment (len+n) (Point (x+1) y) (Point (x+n) y)
+    segments = scanl follow (Segment 0 centralPort centralPort) segs
 
 load :: String -> [Wire]
 load = map expandWire . map wire . T.splitOn "\n" . T.strip . T.pack
   where
     wire = map (segment . T.unpack . T.strip) . T.splitOn ","
-    segment (d:len) = SegmentDescriptor (dir d) (read len)
+    segment (d:len) = Move (dir d) (read len)
     dir 'U' = U
     dir 'D' = D
     dir 'L' = L
     dir 'R' = R 
 
-vertical :: SegmentLine -> Bool
-vertical (SegmentLine _ (Point x1 _) (Point x2 _)) = x1 == x2
+vertical :: Segment -> Bool
+vertical (Segment _ (Point x1 _) (Point x2 _)) = x1 == x2
 
-horizontal :: SegmentLine -> Bool
-horizontal (SegmentLine _ (Point _ y1) (Point _ y2)) = y1 == y2
+horizontal :: Segment -> Bool
+horizontal (Segment _ (Point _ y1) (Point _ y2)) = y1 == y2
 
 wireIntersections :: Wire -> Wire -> [Intersection]
 wireIntersections [] _ = []
@@ -61,8 +62,11 @@ wireIntersections _ [] = []
 wireIntersections (x:xs) (y:ys) =
   maybeToList (intersection x y) ++ wireIntersections [x] ys ++ wireIntersections xs ys
 
-intersection :: SegmentLine -> SegmentLine -> Maybe Intersection
-intersection s1@(SegmentLine l1 (Point x1 y1) (Point x2 y2)) s2@(SegmentLine l2 (Point x3 y3) (Point x4 y4)) =
+crosses :: Int -> Int -> Int -> Bool
+crosses a b c = (min a b) < c && c < (max a b)
+
+intersection :: Segment -> Segment -> Maybe Intersection
+intersection s1@(Segment l1 (Point x1 y1) (Point x2 y2)) s2@(Segment l2 (Point x3 y3) (Point x4 y4)) =
   if vertical s1 && horizontal s2 && crosses y1 y2 y3 && crosses x3 x4 x1 then
     Just $ Intersection (Point x1 y3) (l1-abs(y2-y3)) (l2-abs(x4-x1))
   else
@@ -70,9 +74,6 @@ intersection s1@(SegmentLine l1 (Point x1 y1) (Point x2 y2)) s2@(SegmentLine l2 
     Just $ Intersection (Point x3 y1) (l1-abs(x2-x3)) (l2-abs(y4-y1))
   else
     Nothing
-
-crosses :: Int -> Int -> Int -> Bool
-crosses a b c = (min a b) < c && c < (max a b)
 
 intersections :: [Wire] -> [Intersection]
 intersections [] = []
