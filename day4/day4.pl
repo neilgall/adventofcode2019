@@ -22,6 +22,13 @@ has_adjacent_digits_the_same(A, B, C, D, E, F) :-
 	; D == E
 	; E == F.
 
+adjacent_digits_not_in_larger_group(A, B, C, D, E, F) :-
+              A == B, B \= C
+    ; A \= B, B == C, C \= D
+    ; B \= D, C == D, D \= E
+    ; C \= E, D == E, E \= F
+    ; D \= E, E == F.
+
 has_no_decreasing_digits(A, B, C, D, E, F) :-
 	  A =< B
 	, B =< C
@@ -29,7 +36,7 @@ has_no_decreasing_digits(A, B, C, D, E, F) :-
 	, D =< E
 	, E =< F.
 
-solve(A, B, C, D, E, F) :-
+solve_part1(A, B, C, D, E, F) :-
 	  digit(A)
 	, digit(B)
 	, digit(C)
@@ -40,6 +47,14 @@ solve(A, B, C, D, E, F) :-
 	, has_no_decreasing_digits(A, B, C, D, E, F)
 	, in_range(A, B, C, D, E, F).
 
-main(Count) :-
-	  setof([A,B,C,D,E,F], solve(A, B, C, D, E, F), L)
-	, length(L, Count).
+solve_part2(A, B, C, D, E, F) :-
+	  solve_part1(A, B, C, D, E, F)
+	, adjacent_digits_not_in_larger_group(A, B, C, D, E, F).
+
+part1(Count) :-
+	  setof([A, B, C, D, E, F], solve_part1(A, B, C, D, E, F), Set)
+	, length(Set, Count).
+
+part2(Count) :-
+	  setof([A, B, C, D, E, F], solve_part2(A, B, C, D, E, F), Set)
+	, length(Set, Count).

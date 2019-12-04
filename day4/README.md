@@ -6,6 +6,7 @@ This runs in the GNU Prolog REPL with:
 
 ```
 	?- [day4].
-	?- main(X).
+	?- part1(X).
+	?- part2(X).
 ```
 
