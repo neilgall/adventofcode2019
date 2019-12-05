@@ -23,8 +23,12 @@ enum parameter_mode {
 	immediate_mode = 1
 };
 
+size_t buffer_size(size_t size) {
+	return sizeof(struct buffer) + sizeof(opcode) * size;
+}
+
 struct buffer *new_buffer(size_t size) {
-	struct buffer *b = (struct buffer *)malloc(sizeof(struct buffer) + size);
+	struct buffer *b = (struct buffer *)malloc(buffer_size(size));
 	b->size = size;
 	b->pos = 0;
 	return b;
@@ -33,7 +37,7 @@ struct buffer *new_buffer(size_t size) {
 struct buffer *write_buffer(struct buffer *buffer, opcode value) {
 	if (buffer->pos == buffer->size) {
 		buffer->size *= 2;
-		buffer = (struct buffer *)realloc(buffer, sizeof(struct buffer) + buffer->size);
+		buffer = (struct buffer *)realloc(buffer, buffer_size(buffer->size));
 	}
 	buffer->base[buffer->pos++] = value;
 	return buffer;
