@@ -118,11 +118,9 @@ enum parameter_mode parameter_mode_from_opcode(opcode x, size_t index) {
 			if (index == 3) 
 				return immediate_mode;
 			else {
-				printf("opcode %u index %d ", x, index);
 				assert(index >= 1);
 				x /= 100;
 				while (--index) x /= 10;
-				printf("-> %d\n", x);
 				return (x % 10 == 0) ? position_mode : immediate_mode;
 			}
 	}
@@ -163,7 +161,6 @@ int write_program(struct program *program, size_t pos, opcode value) {
 		return 1;
 	}
 	program->base[pos] = value;
-	printf("write %d <- %d\n", pos, value);
 	return 0;
 }
 
@@ -187,39 +184,71 @@ int run_program(struct program *program, int debug) {
 		switch (i % 100) {
 			case 1: {
 				opcode x, y, z;
-				if (read_parameter(program, pc, 1, &x) != 0) return 1;
-				if (read_parameter(program, pc, 2, &y) != 0) return 2;
-				if (read_parameter(program, pc, 3, &z) != 0) return 3;
+				if (read_parameter(program, pc, 1, &x) != 0) return 1001;
+				if (read_parameter(program, pc, 2, &y) != 0) return 1002;
+				if (read_parameter(program, pc, 3, &z) != 0) return 1003;
 				if (debug) printf("pc=%u i=%d x=%d y=%d z=%d\n", pc, i, x, y, z);
-				if (write_program(program, z, x + y) != 0) return 4;
+				if (write_program(program, z, x + y) != 0) return 1004;
 				pc += 4;
 				break;
 			}
 			case 2: {
 				opcode x, y, z;
-				if (read_parameter(program, pc, 1, &x) != 0) return 5;
-				if (read_parameter(program, pc, 2, &y) != 0) return 6;
-				if (read_parameter(program, pc, 3, &z) != 0) return 7;
+				if (read_parameter(program, pc, 1, &x) != 0) return 2001;
+				if (read_parameter(program, pc, 2, &y) != 0) return 2002;
+				if (read_parameter(program, pc, 3, &z) != 0) return 2003;
 				if (debug) printf("pc=%u i=%d x=%d y=%d z=%d\n", pc, i, x, y, z);
-				if (write_program(program, z, x * y) != 0) return 8;
+				if (write_program(program, z, x * y) != 0) return 2004;
 				pc += 4;
 				break;
 			}
 			case 3: {
 				opcode x, z;
-				if (read_buffer(program->input, &x) != 0) return 9;
-				if (read_parameter(program, pc, 1, &z) != 0) return 10;
+				if (read_buffer(program->input, &x) != 0) return 3001;
+				if (read_parameter(program, pc, 1, &z) != 0) return 3002;
 				if (debug) printf("pc=%u i=%d x=%d z=%d\n", pc, i, x, z);
-				if (write_program(program, z, x) != 0) return 11;
+				if (write_program(program, z, x) != 0) return 3004;
 				pc += 2;
 				break;
 			}
 			case 4: {
 				opcode x;
-				if (read_parameter(program, pc, 1, &x) != 0) return 12;
+				if (read_parameter(program, pc, 1, &x) != 0) return 4001;
 				if (debug) printf("pc=%u i=%d x=%d\n", pc, i, x);
-				if (write_output(program, x) != 0) return 13;
+				if (write_output(program, x) != 0) return 4004;
 				pc += 2;
+				break;
+			}
+			case 5: {
+				opcode x, y;
+				if (read_parameter(program, pc, 1, &x) != 0) return 5001;
+				if (read_parameter(program, pc, 2, &y) != 0) return 5002;
+				pc = (x != 0) ? y : pc + 3;
+				break;
+			}
+			case 6: {
+				opcode x, y;
+				if (read_parameter(program, pc, 1, &x) != 0) return 6001;
+				if (read_parameter(program, pc, 2, &y) != 0) return 6002;
+				pc = (x == 0) ? y : pc + 3;
+				break;
+			}
+			case 7: {
+				opcode x, y, z;
+				if (read_parameter(program, pc, 1, &x) != 0) return 7001;
+				if (read_parameter(program, pc, 2, &y) != 0) return 7002;
+				if (read_parameter(program, pc, 3, &z) != 0) return 7003;
+				if (write_program(program, z, (x < y) ? 1 : 0) != 0) return 7004;
+				pc += 4;
+				break;
+			}
+			case 8: {
+				opcode x, y, z;
+				if (read_parameter(program, pc, 1, &x) != 0) return 8001;
+				if (read_parameter(program, pc, 2, &y) != 0) return 8002;
+				if (read_parameter(program, pc, 3, &z) != 0) return 8003;
+				if (write_program(program, z, (x == y) ? 1 : 0) != 0) return 8004;
+				pc += 4;
 				break;
 			}
 			default:
@@ -235,9 +264,20 @@ void part1(struct program *original) {
 	write_buffer(program->input, 1);
 	reset_buffer_for_reading(program->input);
 
-	print_program(program);
+	int result = run_program(program, 0);
+	printf("Program exit with code %d\n", result);
 
-	int result = run_program(program, 1);
+	print_buffer(program->output);
+	free_program(program);
+}
+
+void part2(struct program *original) {
+	printf("Part 2\n");
+	struct program *program = copy_program(original);
+	write_buffer(program->input, 5);
+	reset_buffer_for_reading(program->input);
+
+	int result = run_program(program, 0);
 	printf("Program exit with code %d\n", result);
 
 	print_buffer(program->output);
@@ -245,8 +285,12 @@ void part1(struct program *original) {
 }
 
 static struct program test_program = {
-	.size = 5,
-	.base = { 1002,4,3,4,33 }
+	.size = 48,
+	.base = { 
+		3,21,1008,21,8,20,1005,20,22,107,8,21,20,1006,20,31,
+		1106,0,36,98,0,0,1002,21,125,20,4,20,1105,1,46,104,
+		999,1105,1,46,1101,1000,1,20,4,20,1105,1,46,98,99
+	}
 };
 
 int main(int argc, char **argv) {
@@ -254,6 +298,7 @@ int main(int argc, char **argv) {
 				? load_program("input.txt")
 				: copy_program(&test_program);
 	part1(program);
+	part2(program);
 
 	free_program(program);
 	return 0;
