@@ -3,6 +3,8 @@
 #include <string.h>
 #include <assert.h>
 
+static int debug = 0;
+
 typedef int opcode;
 
 struct buffer {
@@ -14,6 +16,7 @@ struct buffer {
 
 struct program {
 	size_t size;
+	size_t pc;
 	struct buffer *input;
 	struct buffer *output;
 	opcode base[];
@@ -51,10 +54,11 @@ struct buffer *write_buffer(struct buffer *buffer, opcode value) {
 }
 
 int read_buffer(struct buffer *buffer, opcode *value) {
-	if (buffer->read_pos >= buffer->write_pos) {
+	if (buffer->read_pos == buffer->write_pos) 
 		return 1;
-	}
+
 	*value = buffer->base[buffer->read_pos++];
+
 	return 0;
 }
 
@@ -100,6 +104,7 @@ struct program *load_program(char *filename) {
 	program->size = pos;
 	program->input = new_buffer(100);
 	program->output = new_buffer(100);
+	program->pc = 0;
 	return program;
 }
 
@@ -115,6 +120,7 @@ struct program *copy_program(struct program *program) {
 	memcpy(copy, program, size);
 	copy->input = new_buffer(100);
 	copy->output = new_buffer(100);
+	copy->pc = 0;
 	return copy;
 }
 
@@ -136,20 +142,20 @@ enum parameter_mode parameter_mode_from_opcode(opcode x, size_t index) {
 	}
 }
 
-int read_opcode(struct program *program, size_t pc, opcode *x) {
-	if (pc >= program->size) {
+int read_opcode(struct program *program, opcode *x) {
+	if (program->pc >= program->size) {
 		return 1;
 	}
-	*x = program->base[pc];
+	*x = program->base[program->pc];
 	return 0;
 }
 
-int read_parameter(struct program *program, size_t pc, size_t index, opcode *x) {
-	if (pc + index >= program->size) {
+int read_parameter(struct program *program, size_t index, opcode *x) {
+	if (program->pc + index >= program->size) {
 		return 1;
 	}
-	enum parameter_mode mode = parameter_mode_from_opcode(program->base[pc], index);
-	opcode immediate = program->base[pc + index];
+	enum parameter_mode mode = parameter_mode_from_opcode(program->base[program->pc], index);
+	opcode immediate = program->base[program->pc + index];
 	switch (mode) {
 		case position_mode:
 			if (immediate >= program->size) {
@@ -192,78 +198,86 @@ void print_program(struct program *program) {
 	printf("\n");
 }
 
-int run_program(struct program *program, int debug) {
-	size_t pc = 0;
+int program_has_halted(struct program *program) {
+	opcode x;
+	if (read_opcode(program, &x) != 0) return 1;
+	return x == 99;
+}
+
+int run_program(struct program *program, int cooperative) {
 	opcode i;
-	while (read_opcode(program, pc, &i) == 0 && i != 99) {
+	while (read_opcode(program, &i) == 0 && i != 99) {
 		switch (i % 100) {
 			case 1: {
 				opcode x, y, z;
-				if (read_parameter(program, pc, 1, &x) != 0) return 1001;
-				if (read_parameter(program, pc, 2, &y) != 0) return 1002;
-				if (read_parameter(program, pc, 3, &z) != 0) return 1003;
-				if (debug) printf("pc=%u i=%d x=%d y=%d z=%d\n", pc, i, x, y, z);
+				if (read_parameter(program, 1, &x) != 0) return 1001;
+				if (read_parameter(program, 2, &y) != 0) return 1002;
+				if (read_parameter(program, 3, &z) != 0) return 1003;
+				if (debug) printf("pc=%u i=%d x=%d y=%d z=%d\n", program->pc, i, x, y, z);
 				if (write_program(program, z, x + y) != 0) return 1004;
-				pc += 4;
+				program->pc += 4;
 				break;
 			}
 			case 2: {
 				opcode x, y, z;
-				if (read_parameter(program, pc, 1, &x) != 0) return 2001;
-				if (read_parameter(program, pc, 2, &y) != 0) return 2002;
-				if (read_parameter(program, pc, 3, &z) != 0) return 2003;
-				if (debug) printf("pc=%u i=%d x=%d y=%d z=%d\n", pc, i, x, y, z);
+				if (read_parameter(program, 1, &x) != 0) return 2001;
+				if (read_parameter(program, 2, &y) != 0) return 2002;
+				if (read_parameter(program, 3, &z) != 0) return 2003;
+				if (debug) printf("pc=%u i=%d x=%d y=%d z=%d\n", program->pc, i, x, y, z);
 				if (write_program(program, z, x * y) != 0) return 2004;
-				pc += 4;
+				program->pc += 4;
 				break;
 			}
 			case 3: {
 				opcode x, z;
 				if (read_buffer(program->input, &x) != 0) return 3001;
-				if (read_parameter(program, pc, 1, &z) != 0) return 3002;
-				if (debug) printf("pc=%u i=%d x=%d z=%d\n", pc, i, x, z);
+				if (read_parameter(program, 1, &z) != 0) return 3002;
+				if (debug) printf("pc=%u i=%d x=%d z=%d\n", program->pc, i, x, z);
 				if (write_program(program, z, x) != 0) return 3004;
-				pc += 2;
+				program->pc += 2;
 				break;
 			}
 			case 4: {
 				opcode x;
-				if (read_parameter(program, pc, 1, &x) != 0) return 4001;
-				if (debug) printf("pc=%u i=%d x=%d\n", pc, i, x);
+				if (read_parameter(program, 1, &x) != 0) return 4001;
+				if (debug) printf("pc=%u i=%d x=%d\n", program->pc, i, x);
 				if (write_output(program, x) != 0) return 4004;
-				pc += 2;
-				break;
+				program->pc += 2;
+				if (cooperative)
+					return 0;
+				else
+					break;
 			}
 			case 5: {
 				opcode x, y;
-				if (read_parameter(program, pc, 1, &x) != 0) return 5001;
-				if (read_parameter(program, pc, 2, &y) != 0) return 5002;
-				pc = (x != 0) ? y : pc + 3;
+				if (read_parameter(program, 1, &x) != 0) return 5001;
+				if (read_parameter(program, 2, &y) != 0) return 5002;
+				program->pc = (x != 0) ? y : program->pc + 3;
 				break;
 			}
 			case 6: {
 				opcode x, y;
-				if (read_parameter(program, pc, 1, &x) != 0) return 6001;
-				if (read_parameter(program, pc, 2, &y) != 0) return 6002;
-				pc = (x == 0) ? y : pc + 3;
+				if (read_parameter(program, 1, &x) != 0) return 6001;
+				if (read_parameter(program, 2, &y) != 0) return 6002;
+				program->pc = (x == 0) ? y : program->pc + 3;
 				break;
 			}
 			case 7: {
 				opcode x, y, z;
-				if (read_parameter(program, pc, 1, &x) != 0) return 7001;
-				if (read_parameter(program, pc, 2, &y) != 0) return 7002;
-				if (read_parameter(program, pc, 3, &z) != 0) return 7003;
+				if (read_parameter(program, 1, &x) != 0) return 7001;
+				if (read_parameter(program, 2, &y) != 0) return 7002;
+				if (read_parameter(program, 3, &z) != 0) return 7003;
 				if (write_program(program, z, (x < y) ? 1 : 0) != 0) return 7004;
-				pc += 4;
+				program->pc += 4;
 				break;
 			}
 			case 8: {
 				opcode x, y, z;
-				if (read_parameter(program, pc, 1, &x) != 0) return 8001;
-				if (read_parameter(program, pc, 2, &y) != 0) return 8002;
-				if (read_parameter(program, pc, 3, &z) != 0) return 8003;
+				if (read_parameter(program, 1, &x) != 0) return 8001;
+				if (read_parameter(program, 2, &y) != 0) return 8002;
+				if (read_parameter(program, 3, &z) != 0) return 8003;
 				if (write_program(program, z, (x == y) ? 1 : 0) != 0) return 8004;
-				pc += 4;
+				program->pc += 4;
 				break;
 			}
 			default:
@@ -315,20 +329,14 @@ void fill_permutations(struct buffer **buffer, size_t count, size_t fixed_count,
 	}
 }
 
-struct buffer *phase_permutations(size_t count) {
+struct buffer *phase_permutations(size_t count, opcode *data) {
 	size_t permutations = 1;
 	for (size_t i = 1; i <= count; ++i) {
 		permutations *= i;
 	}
 	
-	opcode *data = malloc(sizeof(opcode) * count);
-	for (size_t i = 0; i < count; ++i)
-		data[i] = i;
-
 	struct buffer *buffer = new_buffer(count * permutations);
 	fill_permutations(&buffer, count, 0, data);
-
-	free(data);
 	return buffer;
 }
 
@@ -347,23 +355,54 @@ int run_amplifier_circuit(struct amplifier_circuit *ac, opcode phases[], opcode 
 	return 0;
 }
 
-void part1_test(struct program *original, opcode *phases) {
-	printf("Part 1 Test... ");
-	struct amplifier_circuit *ac = new_amplifier_circuit(original, 5);
+int run_amplifier_circuit_with_feedback_loop(struct amplifier_circuit *ac, opcode phases[], opcode *result) {
+	for (size_t i = 0; i < ac->count; ++i) {
+		write_input(ac->program[i], phases[i]);
+	}
+	write_input(ac->program[0], 0);
 
-	opcode output;
-	int result = run_amplifier_circuit(ac, phases, &output);
-	printf("%d\n", output);
+	int running_count = ac->count;
+	while (running_count > 0) {
+		for (size_t i = 0; i < ac->count; ++i) {
+			size_t next = (i + 1) % ac->count;
+			size_t write_pos = ac->program[i]->output->write_pos;
+			int halted = program_has_halted(ac->program[i]);
 
-	free_amplifier_circuit(ac);
+			int exit = run_program(ac->program[i], 1);
+			if (exit != 0 && exit != 3001) {
+				printf("Running program %d failed with code %d for phases ", i, exit);
+				print_phases(phases, ac->count);
+				return 1;
+			}
+
+			if (write_pos != ac->program[i]->output->write_pos) {
+				opcode signal;
+				if (read_buffer(ac->program[i]->output, &signal) != 0) return 2;
+				if (write_input(ac->program[next], signal) != 0) return 3;
+			}
+
+			if (!halted && program_has_halted(ac->program[i])) {
+				running_count--;
+			}
+		}
+	}
+
+	struct buffer *rbuf = ac->program[ac->count-1]->output;
+	*result = rbuf->base[rbuf->write_pos-1];
+
+	return 0;
 }
 
-int part1(struct program *program) {
+
 #define UNITS 5
-	opcode best_phases[UNITS];
+
+typedef int (* runner)(struct amplifier_circuit *, opcode *, opcode *);
+
+void find_maximum_output(struct program *program, opcode *initial_phases, runner run) {
+	opcode best_phases[UNITS] = { 0, 1, 2, 3, 4 };
 	opcode best_output = 0;
 
-	struct buffer *phases_buffer = phase_permutations(UNITS);
+	struct buffer *phases_buffer = phase_permutations(UNITS, initial_phases);
 
 	int stop = 0;
 	while (!stop) {
@@ -375,13 +414,13 @@ int part1(struct program *program) {
 
 		struct amplifier_circuit *ac = new_amplifier_circuit(program, UNITS);
 		opcode output;
-		int result = run_amplifier_circuit(ac, phases, &output);
+		int result = run(ac, phases, &output);
 		free_amplifier_circuit(ac);
 
 		if (result != 0) {
-			printf("Running program failed for phases ");
+			printf("Running program failed with code %d for phases ", result);
 			print_phases(phases, UNITS);
-			return 1;
+			return;
 		}
 
 		if (output > best_output) {
@@ -389,15 +428,25 @@ int part1(struct program *program) {
 			best_output = output;
 		}
 	}
-	stop:
 
 	printf("Best output %d for phases: ", best_output);
 	print_phases(best_phases, UNITS);
 
-	return 0;
+	return;
 }
 
-// test examples
+
+int part1(struct program *program) {
+	opcode phases[UNITS] = { 0, 1, 2, 3, 4 };
+	find_maximum_output(program, phases, run_amplifier_circuit);
+}
+
+int part2(struct program *program) {
+	opcode phases[UNITS] = { 5, 6, 7, 8, 9 };
+	find_maximum_output(program, phases, run_amplifier_circuit_with_feedback_loop);
+}
+
+// part 1 test examples
 
 static struct program test_program_1 = {
 	.size = 17,
@@ -420,16 +469,42 @@ static struct program test_program_3 = {
 	}
 };
 
+// part 2 test examples 
+
+static struct program test_program_4 = {
+	.size = 29,
+	.base = {
+		3,26,1001,26,-4,26,3,27,1002,27,2,27,1,27,26,
+		27,4,27,1001,28,-1,28,1005,28,6,99,0,0,5
+	}
+};
+
+static struct program test_program_5 = {
+	.size = 57,
+	.base = {
+		3,52,1001,52,-5,52,3,53,1,52,56,54,1007,54,5,55,1005,55,26,1001,54,
+		-5,54,1105,1,12,1,53,54,53,1008,54,0,55,1001,55,1,55,2,53,55,53,4,
+		53,1001,56,-1,56,1005,56,6,99,0,0,0,0,10
+	}
+};
+
 
 int main(int argc, char **argv) {
 	printf("Running Tests..\n");
 	part1(&test_program_1);
 	part1(&test_program_2);
 	part1(&test_program_3);
+	part2(&test_program_4);
+	part2(&test_program_5);
+
+	struct program *program = load_program("input.txt");
 
 	printf("\nPart 1\n");
-	struct program *program = load_program("input.txt");
 	part1(program);
+
+	printf("\nPart 2\n");
+	part2(program);
+
 	free_program(program);
 
 	return 0;

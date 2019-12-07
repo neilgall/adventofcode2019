@@ -9,3 +9,7 @@ Part 1 caught me out as at first I missed the requirement the phases were permut
 * Rotate the non-fixed digits
 * Recursively generate the permutations with one more fixed digit
 * Copy the data into the output buffer
+
+## Part 2
+
+The second half involves running the programs in parallel. I chose to run them cooperatively, yielding control each time a value is output. This was a fairly straightforward change and led to some better code structure, such as moving the `pc` program counter inside `struct program`.
