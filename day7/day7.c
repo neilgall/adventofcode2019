@@ -365,7 +365,8 @@ int run_amplifier_circuit_with_feedback_loop(struct amplifier_circuit *ac, opcod
 	while (running_count > 0) {
 		for (size_t i = 0; i < ac->count; ++i) {
 			size_t next = (i + 1) % ac->count;
-			size_t write_pos = ac->program[i]->output->write_pos;
+			struct buffer *output_buf = ac->program[i]->output;
+			size_t write_pos = output_buf->write_pos;
 			int halted = program_has_halted(ac->program[i]);
 
 			int exit = run_program(ac->program[i], 1);
@@ -375,9 +376,9 @@ int run_amplifier_circuit_with_feedback_loop(struct amplifier_circuit *ac, opcod
 				return 1;
 			}
 
-			if (write_pos != ac->program[i]->output->write_pos) {
+			if (write_pos != output_buf->write_pos) {
 				opcode signal;
-				if (read_buffer(ac->program[i]->output, &signal) != 0) return 2;
+				if (read_buffer(output_buf, &signal) != 0) return 2;
 				if (write_input(ac->program[next], signal) != 0) return 3;
 			}
 
@@ -429,10 +430,10 @@ void find_maximum_output(struct program *program, opcode *initial_phases, runner
 		}
 	}
 
+	free(phases_buffer);
+
 	printf("Best output %d for phases: ", best_output);
 	print_phases(best_phases, UNITS);
-
-	return;
 }
 
 
@@ -445,6 +446,7 @@ int part2(struct program *program) {
 	opcode phases[UNITS] = { 5, 6, 7, 8, 9 };
 	find_maximum_output(program, phases, run_amplifier_circuit_with_feedback_loop);
 }
+
 
 // part 1 test examples
 
