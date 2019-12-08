@@ -32,12 +32,11 @@ fun Pair<Pixel, Pixel>.merge() =
 fun Layer.merge(next: Layer): Layer =
 	Layer(pixels.zip(next.pixels).map { p -> p.merge() })
 
-fun Layer.print(size: Size) {
-	fun render(p: Pixel): Char = if (p == WHITE) '#' else ' '
-	pixels.map(::render)
+fun Layer.render(size: Size): String =
+	pixels.map { p -> if (p == WHITE) '#' else ' ' }
 		.chunked(size.width)
-		.forEach { row -> println(row.joinToString("")) }
-}
+		.map { row -> row.joinToString("") }
+		.joinToString("\n")
 
 fun part1(image: SpaceImageFormat): Int {
 	val layerWithLeastZeros = image.layers.minBy { layer -> layer.countPixels('0') }!!
@@ -46,13 +45,12 @@ fun part1(image: SpaceImageFormat): Int {
 	return ones * twos
 }
 
-fun part2(image: SpaceImageFormat): Layer =
+fun part2(image: SpaceImageFormat): String =
 	image.layers.fold(transparentLayer(image.size), Layer::merge)
+		.render(image.size)
 
 fun main() {
 	val image = File("input.txt").readText().decode(Size(25, 6))
 	println("Part 1... ${part1(image)}")
-
-	println("Part 2...")
-	part2(image).print(image.size)
+	println("Part 2...\n${part2(image)}")
 }
