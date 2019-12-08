@@ -6,3 +6,5 @@ So on to the problem. Part 1 is pretty simple
 * chunk the input into 25x6 character chunks
 * find the one with the least zeros - this is a `minBy` operation
 * for that chunk (layer), count the `1` and `2` characters and multiply
+
+Part 2 involves flattening the layers into a single layer, with a per-pixel flattening function. Adding a fully transparent layer on top this is a simple fold over all the layers, where merging two layers is done by merging each pair of overlapping pixels.

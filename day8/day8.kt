@@ -1,23 +1,58 @@
 import java.io.File
 
-typealias Layer = List<Char>
+typealias Pixel = Char
 
-data class SpaceImageFormat(val layers: List<Layer>)
+const val BLACK: Char = '0'
+const val WHITE: Char = '1'
+const val TRANSPARENT: Char = '2'
 
-fun String.decode(width: Int, height: Int): SpaceImageFormat =
-	SpaceImageFormat(layers = trim().asIterable().chunked(width * height))
+data class Size(val width: Int, val height: Int) {
+	val pixels: Int = width * height
+}
 
-fun Layer.countDigits(digit: Char): Int =
-	count { it == digit }
+data class Layer(val pixels: List<Pixel>)
+
+data class SpaceImageFormat(val size: Size, val layers: List<Layer>)
+
+fun String.decode(size: Size): SpaceImageFormat =
+	SpaceImageFormat(
+		size = size,
+		layers = trim().asIterable().chunked(size.pixels).map(::Layer)
+	)
+
+fun transparentLayer(size: Size): Layer =
+	Layer(List<Pixel>(size.pixels) { TRANSPARENT })
+
+fun Layer.countPixels(pixel: Pixel): Int =
+	pixels.count { p -> p == pixel }
+
+fun Pair<Pixel, Pixel>.merge() =
+	if (first == TRANSPARENT) second else first
+
+fun Layer.merge(next: Layer): Layer =
+	Layer(pixels.zip(next.pixels).map { p -> p.merge() })
+
+fun Layer.print(size: Size) {
+	fun render(p: Pixel): Char = if (p == WHITE) '#' else ' '
+	pixels.map(::render)
+		.chunked(size.width)
+		.forEach { row -> println(row.joinToString("")) }
+}
 
 fun part1(image: SpaceImageFormat): Int {
-	val layerWithLeastZeros = image.layers.minBy { it.countDigits('0') }!!
-	val ones = layerWithLeastZeros.countDigits('1')
-	val twos = layerWithLeastZeros.countDigits('2')
+	val layerWithLeastZeros = image.layers.minBy { layer -> layer.countPixels('0') }!!
+	val ones = layerWithLeastZeros.countPixels('1')
+	val twos = layerWithLeastZeros.countPixels('2')
 	return ones * twos
 }
 
+fun part2(image: SpaceImageFormat): Layer =
+	image.layers.fold(transparentLayer(image.size), Layer::merge)
+
 fun main() {
-	val image = File("input.txt").readText().decode(25, 6)
+	val image = File("input.txt").readText().decode(Size(25, 6))
 	println("Part 1... ${part1(image)}")
+
+	println("Part 2...")
+	part2(image).print(image.size)
 }
