@@ -97,7 +97,7 @@ size_t memory_size(size_t size) {
 
 size_t increase_memory(opcode **memory, size_t old_size) {
 	size_t new_size = old_size*2;
-	*memory = realloc(*memory, memory_size(new_size));
+	*memory = (opcode *)realloc(*memory, memory_size(new_size));
 	memset(*memory + old_size, 0, memory_size(old_size));
 	return new_size;
 }
@@ -149,8 +149,8 @@ void free_program(struct program *program) {
 struct program *copy_program(struct program *program) {
 	struct program *copy = (struct program *)malloc(sizeof(struct program));
 	copy->memory_size = program->memory_size;
-	copy->memory = (opcode *)malloc(program->memory_size);
-	memcpy(copy->memory, program->memory, program->memory_size);
+	copy->memory = (opcode *)malloc(memory_size(program->memory_size));
+	memcpy(copy->memory, program->memory, memory_size(program->memory_size));
 	copy->input = new_buffer(100);
 	copy->output = new_buffer(100);
 	copy->pc = 0;
@@ -194,13 +194,13 @@ int read_parameter(struct program *program, size_t index, opcode *x) {
 			ensure_program_memory(program, immediate);
 			if (debug > 10) {
 				printf("read index %d position mode (immediate %s) ", index, print_opcode(immediate));
-				printf("%s\n", print_opcode(program->memory[immediate]));
+				printf("--> %s\n", print_opcode(program->memory[immediate]));
 			}
 			*x = program->memory[immediate];
 			break;
 		}
 		case immediate_mode: {
-			if (debug > 10) printf("red index %d immediate %s\n", index, print_opcode(immediate));
+			if (debug > 10) printf("read index %d immediate --> %s\n", index, print_opcode(immediate));
 			*x = immediate;
 			break;
 		}
@@ -209,7 +209,7 @@ int read_parameter(struct program *program, size_t index, opcode *x) {
 			ensure_program_memory(program, address);
 			if (debug > 10) {
 				printf("read index %d relative (immediate %s ", index, print_opcode(immediate));
-				printf("relative %u) %s\n", address, print_opcode(program->memory[address]));
+				printf("relative %u) --> %s\n", address, print_opcode(program->memory[address]));
 			}
 			*x = program->memory[address];
 			break;
@@ -232,8 +232,8 @@ int write_program(struct program *program, size_t index, opcode value) {
 			ensure_program_memory(program, immediate);
 			if (debug > 10) {
 				printf("write index %d position mode (immediate %s) ", index, print_opcode(immediate));
-				puts(print_opcode(program->memory[immediate]));
-				printf(" value %s\n", print_opcode(value));
+				printf(print_opcode(program->memory[immediate]));
+				printf(" <-- %s\n", print_opcode(value));
 			}
 			program->memory[immediate] = value;
 			break;
@@ -243,7 +243,7 @@ int write_program(struct program *program, size_t index, opcode value) {
 			ensure_program_memory(program, address);
 			if (debug > 10) {
 				printf("write index %d relative mode (immediate %s ", index, print_opcode(immediate));
-				printf(" relative %u) value %s\n", print_opcode(value));
+				printf("relative %u) <-- %s\n", address, print_opcode(value));
 			}
 			program->memory[address] = value;
 			break;
@@ -264,9 +264,9 @@ int write_output(struct program *program, opcode value) {
 }
 
 void print_program(struct program *program) {
-	printf("%u", program->memory[0]);
-	for (int i = 1; i < program->memory_size; ++i) {
-		printf(",%d", program->memory[i]);
+	printf("%s", print_opcode(program->memory[0]));
+	for (int i = 1; i < program->memory_size / sizeof(opcode); ++i) {
+		printf(",%s", print_opcode(program->memory[i]));
 	}
 	printf("\n");
 }
@@ -442,15 +442,27 @@ void test_output_large_number() {
 
 // solutions
 
-int part1(struct program *program) {
+int part1(struct program *original) {
+	struct program *program = copy_program(original);
 	write_input(program, 1);
+
 	int result = run_program(program, 0);
 	printf("exit:%d output:", result);
 	print_buffer(program->output);
+
+	free_program(program);
 }
 
 
-int part2(struct program *program) {
+int part2(struct program *original) {
+	struct program *program = copy_program(original);
+	write_input(program, 2);
+
+	int result = run_program(program, 0);
+	printf("exit:%d output:", result);
+	print_buffer(program->output);
+
+	free_program(program);
 }
 
 
@@ -461,6 +473,7 @@ int main(int argc, char **argv) {
 	test_output_large_number();
 
 	struct program *program = load_program("input.txt");
+	print_program(program);
 
 	printf("\nPart 1\n");
 	part1(program);
