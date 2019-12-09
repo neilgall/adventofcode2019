@@ -71,7 +71,7 @@ char *print_opcode(opcode n) {
 			negative = 1;
 			x = -x; // eek, minimum negative value edge case
 		}
-		for (*s-- = '0'; x != 0 && s != str; x /= 10) {
+		for (*--s = '\0'; x != 0 && s != str; x /= 10) {
 			*--s = '0' + (x % 10);
 		}
 		if (negative) 
