@@ -1,6 +1,7 @@
 from itertools import groupby
 from math import atan2, cos, pi, sin, sqrt
 
+
 def load(text):
   """
   Given a textual map, yields all the asteroid coordinates
@@ -120,8 +121,7 @@ def vaporise_asteroids(asteroids, station):
 
   while asteroids_grouped != []:
     for theta, group in list(asteroids_grouped):
-      a = to_cartesian(group[-1])
-      yield a
+      yield to_cartesian(group[-1])
       if len(group) == 1:
         asteroids_grouped.remove((theta,group))
       else:
@@ -241,4 +241,4 @@ if __name__ == "__main__":
  	  input = load(f.read())
 
   print(f"Part 1... {part1(input)}")
-  print(f"Part 1... {part2(input)}")
+  print(f"Part 2... {part2(input)}")
