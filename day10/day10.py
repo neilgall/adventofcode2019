@@ -25,28 +25,6 @@ def space_size(asteroids):
   return range(minx, maxx+1), range(miny, maxy+1)
 
 
-def space_perimeter(xrange, yrange, x):
-  """
-  Given the space size and an x coordinate, yield the list of
-  coordinates which form the space perimiter in clockwise order
-  starting directly above x
-  """
-  minx = min(xrange)
-  maxx = max(xrange)
-  miny = min(yrange)
-  maxy = max(yrange)
-  for x in range(x, maxx+1):
-    yield (x,miny)
-  for y in yrange[1:]:
-    yield (y,maxx)
-  for x in xrange[::-1]:
-    yield (x,maxy)
-  for y in yrange[::-1]:
-    yield (minx, y)
-  for x in range(minx, x):
-    yield (x,miny)
-
-
 def sq_distance_from(x1,y1):
   """
   Returns a function which determines the square of the distance
