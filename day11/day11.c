@@ -332,7 +332,7 @@ size_t grid_position(struct robot *robot) {
 		printf("FAIL! grid is too narrow\n");
 		exit(1);
 	}
-	if (robot->pos.y < 0 || robot->grid_width <= robot->pos.y) {
+	if (robot->pos.y < 0 || robot->grid_height <= robot->pos.y) {
 		printf("FAIL! grid is too short\n");
 		exit(1);
 	}
