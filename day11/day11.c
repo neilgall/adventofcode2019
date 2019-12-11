@@ -430,6 +430,30 @@ void free_robot(struct robot *robot) {
 	free(robot);
 }
 
+void print_panel_grid(struct robot *robot) {
+	// find edges
+	struct position top_left = { .x = robot->grid_width, .y = robot->grid_height };
+	struct position bottom_right = { .x = 0, .y = 0 };
+	for (size_t x = 0; x < robot->grid_width; ++x) {
+		for (size_t y = 0; y < robot->grid_height; ++y) {
+			if (robot->grid[x + robot->grid_width * y] & 1) {
+				top_left.x = x < top_left.x ? x : top_left.x;
+				top_left.y = y < top_left.y ? y : top_left.y;
+				bottom_right.x = x > bottom_right.x ? x : bottom_right.x;
+				bottom_right.y = y > bottom_right.y ? y : bottom_right.y;
+			}
+		}
+	}
+
+	printf("Painted extent %u,%u -> %u,%u\n", top_left.x, top_left.y, bottom_right.x, bottom_right.y);
+
+	for (size_t y = top_left.y; y <= bottom_right.y; ++y) {
+		for (size_t x = top_left.x; x <= bottom_right.x; ++x) {
+			putchar(robot->grid[x + robot->grid_width * y] & 1 ? '#' : ' ');
+		}
+		putchar('\n');
+	}
+}
 
 // tests
 
@@ -467,10 +491,26 @@ void part1_robot_test() {
 // solutions
 
 int part1(struct program *program) {
-	struct robot *robot = new_robot(program, 1000, 1000);
+	printf("Part 1\n");
+
+	struct robot *robot = new_robot(program, 200, 100);
 
 	int result = run_program(robot->program, 0);
 	printf("exit:%d; Robot painted %u tiles\n", result, robot_paint_count(robot));
+
+	free_robot(robot);
+}
+
+
+int part2(struct program *program) {
+	printf("Part 2\n");
+
+	struct robot *robot = new_robot(program, 200, 100);
+	robot->grid[grid_position(robot)] = 1;
+
+	int result = run_program(robot->program, 0);
+	printf("exit:%d; Robot painted %u tiles\n", result, robot_paint_count(robot));
+	print_panel_grid(robot);
 
 	free_robot(robot);
 }
@@ -481,8 +521,8 @@ int main(int argc, char **argv) {
 
 	struct program *program = load_program("input.txt");
 
-	printf("\nPart 1\n");
 	part1(program);
+	part2(program);
 
 	free_program(program);
 
