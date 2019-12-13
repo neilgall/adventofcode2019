@@ -4,7 +4,7 @@
 #include <assert.h>
 
 static int debug = 0;
-static int screen_debug = 1;
+static int screen_debug = 0;
 
 // IntCode computer
 
@@ -315,15 +315,19 @@ enum tile {
 struct screen {
 	struct program *program;
 	enum tile *tiles;
-	size_t width;
-	size_t height;
-	size_t next_x;
-	size_t next_y;
+	opcode score;
+	opcode width;
+	opcode height;
+	opcode next_x;
+	opcode next_y;
+	opcode ball_x, paddle_x;
 };
 
 void print_screen(struct screen *screen) {
-	for (size_t y = 0; y <= screen->height; ++y) {
-		for (size_t x = 0; x <= screen->width; ++x) {
+	printf("\033c");
+
+	for (size_t y = 0; y < screen->height; ++y) {
+		for (size_t x = 0; x < screen->width; ++x) {
 			char c = ' ';
 			switch (screen->tiles[x + screen->width * y]) {
 				case EMPTY:
@@ -346,6 +350,8 @@ void print_screen(struct screen *screen) {
 		}
 		putchar('\n');
 	}
+
+	printf("Score: %u\n", screen->score);
 }
 
 void screen_set_tile(void *io_context, opcode);
@@ -354,13 +360,13 @@ void screen_set_y(void *io_context, opcode);
 
 void screen_set_x(void *io_context, opcode x) {
 	struct screen *screen = (struct screen *)io_context;
-	if (screen->width <= x) {
-		printf("ERROR! screen too small (x=%u)", x);
+	if (x < -1 || screen->width <= x) {
+		printf("ERROR! screen too small (x=%d)", x);
 		exit(1);
 	}
 
 	if (screen_debug) {
-		printf("screen set x <-- %u\n", x);
+		printf("screen set x <-- %d\n", x);
 	}
 
 	screen->next_x = x;
@@ -370,40 +376,64 @@ void screen_set_x(void *io_context, opcode x) {
 
 void screen_set_y(void *io_context, opcode y) {
 	struct screen *screen = (struct screen *)io_context;
-	if (screen->height <= y) {
-		printf("ERROR! screen too small (y=%u)", y);
+	if (y < 0 || screen->height <= y) {
+		printf("ERROR! screen too small (y=%d)", y);
 		exit(1);
 	}
 
 	if (screen_debug) {
-		printf("screen set y <-- %u\n", y);
+		printf("screen set y <-- %d\n", y);
 	}
 
 	screen->next_y = y;
 	screen->program->output = screen_set_tile;
 }
 
-void screen_set_tile(void *io_context, opcode tile) {
+void screen_set_tile(void *io_context, opcode value) {
 	struct screen *screen = (struct screen *)io_context;
-	screen->tiles[screen->next_x + screen->next_y * screen->width] = tile;
+
+	if (screen->next_x == -1 && screen->next_y == 0) {
+		screen->score = value;
+
+	} else {
+		screen->tiles[screen->next_x + screen->next_y * screen->width] = value;
+
+		switch (value) {
+			case PADDLE:
+				screen->paddle_x = screen->next_x;
+				break;
+			case BALL:
+				screen->ball_x = screen->next_x;
+				break;
+		}
+	}
 
 	if (screen_debug) {
-		printf("screen set tile <-- %u\n", tile);
+		printf("screen set tile <-- %u\n", value);
 	}
 
 	print_screen(screen);
 	screen->program->output = screen_set_x;
 }
 
+opcode screen_input(void *io_context) {
+	struct screen *screen = (struct screen *)io_context;
+
+	if (screen->paddle_x < screen->ball_x)
+		return 1;
+	else if (screen->paddle_x > screen->ball_x)
+		return -1;
+	else
+		return 0;
+}
+
 
 struct screen *new_screen(struct program *program, size_t width, size_t height) {
 	struct screen *screen = (struct screen *)calloc(sizeof(struct screen), 1);
-	if (program) {
-		screen->program = copy_program(program);
-		screen->program->io_context = screen;
-		screen->program->input = NULL;
-		screen->program->output = screen_set_x;
-	}
+	screen->program = copy_program(program);
+	screen->program->io_context = screen;
+	screen->program->input = screen_input;
+	screen->program->output = screen_set_x;
 	screen->tiles = (enum tile *)calloc(width * height, sizeof(enum tile));
 	screen->width = width;
 	screen->height = height;
@@ -411,12 +441,10 @@ struct screen *new_screen(struct program *program, size_t width, size_t height) 
 }
 
 void free_screen(struct screen *screen) {
-	if (screen->program)
-		free_program(screen->program);
+	free_program(screen->program);
 	free(screen->tiles);
 	free(screen);
 }
-
 
 
 // solutions
@@ -424,7 +452,7 @@ void free_screen(struct screen *screen) {
 int part1(struct program *program) {
 	printf("Part 1\n");
 
-	struct screen *screen = new_screen(program, 80, 24);
+	struct screen *screen = new_screen(program, 40, 22);
 
 	int result = run_program(screen->program, 0);
 	printf("exit:%d\n", result);
@@ -439,12 +467,27 @@ int part1(struct program *program) {
 	free_screen(screen);
 }
 
+int part2(struct program *program) {
+	printf("Part 2; press enter to start\n");
+
+	getchar();
+
+	struct screen *screen = new_screen(program, 40, 22);
+	screen->program->memory[0] = 2;
+
+	int result = run_program(screen->program, 0);
+	printf("exit:%d\n", result);
+
+	free_screen(screen);
+}
+
 
 
 int main(int argc, char **argv) {
 	struct program *program = load_program("input.txt");
 
 	part1(program);
+	part2(program);
 
 	free_program(program);
 
