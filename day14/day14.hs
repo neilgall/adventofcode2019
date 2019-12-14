@@ -170,8 +170,8 @@ requirements ((Reaction inputs (Material quantity name)):rs) =
   M.insert name (quantity, inputs) (requirements rs)
 
 
-quantitiesNeeded :: [Reaction] -> M.Map String Int
-quantitiesNeeded rs = foldl quantityNeeded (M.fromList [("FUEL", 1)]) (topoSort rs)
+quantitiesNeeded :: [Reaction] -> Int -> M.Map String Int
+quantitiesNeeded rs fuel = foldl quantityNeeded (M.fromList [("FUEL", fuel)]) (topoSort rs)
   where
     add q Nothing = Just q
     add q (Just q') = Just (q' + q)
@@ -189,8 +189,22 @@ quantitiesNeeded rs = foldl quantityNeeded (M.fromList [("FUEL", 1)]) (topoSort 
             addNeeded n (Material q m) = M.alter (add (scale * q)) m n
 
 
-oreNeeded :: [Reaction] -> Int
-oreNeeded = fromMaybe 0 . M.lookup "ORE" . quantitiesNeeded
+oreNeededForFuel :: [Reaction] -> Int -> Int
+oreNeededForFuel rs fuel = fromMaybe 0 $ M.lookup "ORE" $ quantitiesNeeded rs fuel
+
+
+maxFuelProduced :: [Reaction] -> Int -> Int
+maxFuelProduced reactions quantityOfOre = binarySearch estimateLow estimateHigh
+  where
+    estimateLow = quantityOfOre `div` (oreNeededForFuel reactions 1)
+    estimateHigh = estimateLow * 2
+    binarySearch min max = if min == max || min + 1 == max then min
+      else let 
+        mid = (min + max) `div` 2
+      in
+        if oreNeededForFuel reactions mid > quantityOfOre
+          then binarySearch min mid
+          else binarySearch mid max
 
 
 testOreNeeded = do
@@ -200,7 +214,7 @@ testOreNeeded = do
                       \7 A, 1 C => 1 D \
                       \7 A, 1 D => 1 E \
                       \7 A, 1 E => 1 FUEL"
-  oreNeeded reactions1 `shouldBe` 31
+  oreNeededForFuel reactions1 1 `shouldBe` 31
 
   reactions2 <- load "9 ORE => 2 A \
                      \8 ORE => 3 B \
@@ -209,7 +223,7 @@ testOreNeeded = do
                      \5 B, 7 C => 1 BC \
                      \4 C, 1 A => 1 CA \
                      \2 AB, 3 BC, 4 CA => 1 FUEL"
-  oreNeeded reactions2 `shouldBe` 165
+  oreNeededForFuel reactions2 1 `shouldBe` 165
 
   reactions3 <- load "157 ORE => 5 NZVS \
                      \ 165 ORE => 6 DCFZ \
@@ -220,7 +234,8 @@ testOreNeeded = do
                      \ 7 DCFZ, 7 PSHF => 2 XJWVT \
                      \ 165 ORE => 2 GPVTF \
                      \ 3 DCFZ, 7 NZVS, 5 HKGWZ, 10 PSHF => 8 KHKGT"
-  oreNeeded reactions3 `shouldBe` 13312
+  oreNeededForFuel reactions3 1 `shouldBe` 13312
+  maxFuelProduced reactions3 1000000000000 `shouldBe` 82892753
 
   reactions4 <- load "2 VPVL, 7 FWMGM, 2 CXFTF, 11 MNCFX => 1 STKFG \
                      \ 17 NVRVD, 3 JNWZP => 8 VPVL \
@@ -234,7 +249,8 @@ testOreNeeded = do
                      \ 1 NVRVD => 8 CXFTF \
                      \ 1 VJHF, 6 MNCFX => 4 RFSQX \
                      \ 176 ORE => 6 VJHF"
-  oreNeeded reactions4 `shouldBe` 180697
+  oreNeededForFuel reactions4 1 `shouldBe` 180697
+  maxFuelProduced reactions4 1000000000000 `shouldBe` 5586022
 
   reactions5 <- load "171 ORE => 8 CNZTR \
                      \7 ZLQW, 3 BMBT, 9 XCVML, 26 XMNCP, 1 WPTQ, 2 MZWV, 1 RJRHP => 4 PLWSL \
@@ -253,23 +269,29 @@ testOreNeeded = do
                      \121 ORE => 7 VRPVC \
                      \7 XCVML => 6 RJRHP \
                      \5 BHXH, 4 VRPVC => 5 LTCX"
-  oreNeeded reactions5 `shouldBe` 2210736
+  oreNeededForFuel reactions5 1 `shouldBe` 2210736
+  maxFuelProduced reactions5 1000000000000 `shouldBe` 460664
+
 
 -- Main
 
 load :: String -> IO [Reaction]
 load text =
   case parse reactions text of
-    Ok rs _ -> do
+    Ok rs _ ->
       return rs
     Err e a -> do
       putStrLn $ "Expected " ++ e ++ " but found " ++ a
       return []
 
 part1 :: [Reaction] -> IO ()
-part1 input = do
-  putStrLn $ "Part 1 .. " ++ (show $ oreNeeded input)
+part1 input =
+  putStrLn $ "Part 1 .. " ++ (show $ oreNeededForFuel input 1)
 
+
+part2 :: [Reaction] -> IO ()
+part2 input =
+  putStrLn $ "Part 2 .. " ++ (show $ maxFuelProduced input 1000000000000)
 
 main = do
   testParserCombinators
@@ -278,3 +300,4 @@ main = do
 
   input <- readFile "input.txt" >>= load
   part1 input
+  part2 input
