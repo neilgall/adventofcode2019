@@ -1,8 +1,12 @@
 from dataclasses import dataclass, field
-from typing import List
+from typing import List, Generator, TypeVar
 import pytest
 
-@dataclass(frozen=True)
+
+T = TypeVar("T")
+
+
+@dataclass(frozen=True, unsafe_hash=True)
 class Vector:
   x: int = 0
   y: int = 0
@@ -15,7 +19,7 @@ class Vector:
     return Vector(self.x+other.x, self.y+other.y, self.z+other.z)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, unsafe_hash=True)
 class Moon:
   pos: Vector
   velocity: Vector = field(default_factory=Vector)
@@ -40,7 +44,7 @@ def simulate(moons: List[Moon]) -> List[Moon]:
   """
   Simulate the motion of `moons`, returning a new collection of Moons
   """
-  def compare_axis(x, y):
+  def compare_axis(x: int, y: int) -> int:
     if x < y: return 1
     elif x == y: return 0
     else: return -1
@@ -62,18 +66,58 @@ def simulate(moons: List[Moon]) -> List[Moon]:
   return [simulate_moon(m) for m in moons]
 
 
-def simulate_n(moons: List[Moon], count: int) -> List[Moon]:
+def simulate_seq(moons: List[Moon]) -> Generator[List[Moon], None, None]:
   """
-  Simulate `moons` for `count` time steps
+  Generate a sequence of simulated states for `moons`
   """
   m = moons
-  for i in range(count):
+  while True:
     m = simulate(m)
-  return m
+    yield m
+
+
+def after(n: int, seq: Generator[T, None, None]) -> T:
+  """
+  Get the `n`th value from `seq`
+  """
+  for x in range(n):
+    r = next(seq)
+  return r
 
 
 def total_energy(moons: List[Moon]) -> int:
   return sum(m.energy() for m in moons)
+
+
+def simulate_until_repeat(moons: List[Moon]) -> int:
+  """
+  Simulate `moons` until a repeated state is seen. Returns the
+  number of simulation steps to get to that state
+  """
+  def gcd(x: int, y: int) -> int:
+    return y if x == 0 else gcd(y % x, x)
+
+  def loop_size_for_axis(moons: List[Moon], axis) -> int:
+    def state(m: List[Moon]) -> str:
+      return str(list(axis(x) for x in m))
+    
+    states = set(state(moons))
+    for n, m in enumerate(simulate_seq(moons)):
+      s = state(m)
+      if s in states:
+        return n
+      states.add(s)
+
+  def axis_x(m): return (m.pos.x, m.velocity.x)
+  def axis_y(m): return (m.pos.y, m.velocity.y)
+  def axis_z(m): return (m.pos.z, m.velocity.z)
+
+  overall_loop = 1
+  for a in [axis_x, axis_y, axis_z]:
+    loop = loop_size_for_axis(moons, a)
+    overall_loop = overall_loop * loop // gcd(loop, overall_loop)
+
+  return overall_loop
 
 
 def test_load():
@@ -125,11 +169,11 @@ EXAMPLE_MOONS_2 = [
     Moon(pos=Vector(2, 0, 4), velocity=Vector( 1,-1,-1))
   ])
 ])
-def test_simulate_one_step(moons, steps, expect):
+def test_simulate(moons, steps, expect):
   """
   Verify moon simulation
   """
-  assert simulate_n(moons, steps) == expect
+  assert after(steps, simulate_seq(moons)) == expect
 
 
 
@@ -138,13 +182,28 @@ def test_simulate_one_step(moons, steps, expect):
   (EXAMPLE_MOONS_2, 100, 1940)
 ])
 def test_energy(moons, steps, energy):
-  final = simulate_n(moons, steps)
+  """
+  Verify energy calculation
+  """
+  final = after(steps, simulate_seq(moons))
   assert total_energy(final) == energy
 
 
+def test_simulate_until_repeat():
+  """
+  Verify `simulate_until_repeat()`
+  """
+  assert simulate_until_repeat(EXAMPLE_MOONS_1) == 2772
+  assert simulate_until_repeat(EXAMPLE_MOONS_2) == 4686774924
+
+
 def part1(moons):
-  final = simulate_n(moons, 1000)
+  final = after(1000, simulate_seq(moons))
   print(f"Part 1 : {total_energy(final)}")
+
+
+def part2(moons):
+  print(f"Part 2 : {simulate_until_repeat(moons)}")
 
 
 if __name__ == "__main__":
@@ -152,3 +211,4 @@ if __name__ == "__main__":
     moons = load(f.read())
 
   part1(moons)
+  part2(moons)
