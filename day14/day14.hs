@@ -22,15 +22,15 @@ newtype Parser input value = Parser (input -> ParseResult input value)
 instance Functor (Parser input) where
   fmap f (Parser p) = Parser (\input -> fmap f (p input))
 
+instance Applicative (Parser input) where
+  pure x = Parser (\input -> Ok x input)
+  (Parser p) <*> (Parser q) = Parser $ \input ->
+    case p input of
+      Ok r rest -> fmap r (q rest)
+      Err e a -> Err e a
+
 parse :: Parser input value -> input -> ParseResult input value
 parse (Parser p) input = p input
-
-sequence :: (p -> q -> r) -> Parser i p -> Parser i q -> Parser i r
-sequence c (Parser p) (Parser q) = Parser seq
-  where
-    seq input = case p input of
-      Ok r rest -> fmap (\s -> c r s) (q rest)
-      Err e a -> Err e a
 
 parseWith :: (Char -> Bool) -> (String -> a) -> String -> Parser String a
 parseWith match convert expected = Parser $ \input ->
@@ -58,10 +58,10 @@ whitespace :: Parser String ()
 whitespace = Parser $ \input -> Ok () (dropWhile isSpace input)
 
 before :: Parser i x -> Parser i a -> Parser i a
-x `before` p = sequence (\_ v -> v) x p
+x `before` p = fmap snd $ (,) <$> x <*> p
 
 followedBy :: Parser i a -> Parser i x -> Parser i a
-p `followedBy` x = sequence (\v _ -> v) p x
+p `followedBy` x = fmap fst $ (,) <$> p <*> x
 
 sepBy :: Parser i a -> Parser i s -> Parser i [a]
 sepBy (Parser p) (Parser q) = Parser sepBy'
@@ -114,10 +114,10 @@ instance Show Reaction where
 -- Input parser
 
 quantity :: Parser String Material
-quantity = sequence Material (integer `followedBy` whitespace) chemical
+quantity = Material <$> (integer `followedBy` whitespace) <*> chemical
 
 reaction :: Parser String Reaction
-reaction = sequence Reaction inputs outputs
+reaction = Reaction <$> inputs <*> outputs
   where
     inputs = quantity `sepBy` literal ", "
     outputs = literal " => " `before` quantity
