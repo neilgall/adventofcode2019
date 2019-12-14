@@ -1,5 +1,5 @@
 import Data.Char (isAsciiUpper, isDigit, isSpace)
-import Data.List (intersperse, partition, stripPrefix)
+import Data.List (dropWhileEnd,intersperse, partition, stripPrefix)
 import Data.Maybe (fromMaybe)
 import Debug.Trace (trace)
 import Prelude hiding (sequence)
@@ -63,14 +63,20 @@ x `before` p = fmap snd $ (,) <$> x <*> p
 followedBy :: Parser i a -> Parser i x -> Parser i a
 p `followedBy` x = fmap fst $ (,) <$> p <*> x
 
-sepBy :: Parser i a -> Parser i s -> Parser i [a]
-sepBy (Parser p) (Parser q) = Parser sepBy'
+sepBy :: (Monoid i, Eq i) => Parser i a -> Parser i s -> Parser i [a]
+sepBy (Parser p) (Parser q) = Parser $ \input ->
+  case p input of
+    Err e a -> Ok [] input
+    Ok v rest -> fmap (prepend v) (sepBy' rest)
   where
-    sepBy' input = case p input of
-      Err _ _ -> Ok [] input
-      Ok v rest -> case q rest of
-        Err _ _ -> Ok [v] rest
-        Ok _ rest' -> fmap (\vs -> v:vs) (sepBy' rest')
+    prepend v vs = (v:vs)
+    sepBy' input' = if input' == mempty
+      then Ok [] input'
+      else case q input' of
+        Err e a -> Ok [] input'
+        Ok _ rest -> case p rest of
+          Err e a -> Err e a
+          Ok v rest' -> fmap (prepend v) (sepBy' rest')
 
 
 testParserCombinators = do
@@ -92,6 +98,9 @@ testParserCombinators = do
   parse (integer `followedBy` literal "foo") "123foobar" `shouldBe` Ok 123 "bar"
 
   parse (integer `sepBy` (literal ",")) "1,2,3,4foo" `shouldBe` Ok [1,2,3,4] "foo"
+  parse (integer `sepBy` (literal ",")) "1foo" `shouldBe` Ok [1] "foo"
+  parse (integer `sepBy` (literal ",")) "foo" `shouldBe` Ok [] "foo"
+  parse (integer `sepBy` (literal ",")) "1,foo" `shouldBe` Err "an integer" "foo"
 
 
 -- Data model
@@ -277,11 +286,11 @@ testOreNeeded = do
 
 load :: String -> IO [Reaction]
 load text =
-  case parse reactions text of
+  case parse reactions (dropWhileEnd isSpace text) of
     Ok rs _ ->
       return rs
     Err e a -> do
-      putStrLn $ "Expected " ++ e ++ " but found " ++ a
+      putStrLn $ "Expected " ++ e ++ " but found " ++ a ++ " in " ++ text
       return []
 
 part1 :: [Reaction] -> IO ()
