@@ -1,7 +1,10 @@
 import Data.Char (isAsciiUpper, isDigit, isSpace)
-import Data.List (intersperse, stripPrefix)
+import Data.List (intersperse, partition, stripPrefix)
+import Data.Maybe (fromMaybe)
+import Debug.Trace (trace)
 import Prelude hiding (sequence)
 import Test.Hspec hiding (before)
+import qualified Data.Map as M
 
 -- Simple parser combinators
 
@@ -93,8 +96,10 @@ testParserCombinators = do
 
 -- Data model
 
-data Material = Material Int String
-  deriving (Eq, Show)
+type Name = String
+
+data Material = Material Int Name
+  deriving (Eq, Ord, Show)
 
 data Reaction = Reaction [Material] Material
   deriving (Eq)
@@ -125,9 +130,151 @@ testModelParser = do
   parse quantity "54 FUEL" `shouldBe` Ok (Material 54 "FUEL") ""
   parse reaction "8 A, 1 B => 1 C" `shouldBe` Ok (Reaction [Material 8 "A", Material 1 "B"] (Material 1 "C")) ""
 
+
+
+-- Topological sort
+
+data Edge = Edge Name Name
+
+findEdges :: [Reaction] -> [Edge]
+findEdges [] = []
+findEdges ((Reaction inputs output):rs) = (map toEdge inputs) ++ (findEdges rs)
+  where
+    edgeOutput = (\(Material _ o) -> o) output
+    toEdge (Material _ i) = Edge i edgeOutput
+
+
+topoSort :: [Reaction] -> [Name]
+topoSort rs = reverse $ topoSort' (findEdges rs) ["FUEL"] []
+  where
+    input (Edge i _) = i
+    output (Edge _ o) = o
+    from x e = input e == x
+    to x e = output e == x
+    noneFrom es e = not (any (from (input e)) es)
+
+    topoSort' :: [Edge] -> [Name] -> [Name] -> [Name]
+    topoSort' _ [] result = result
+    topoSort' edges (here:stack) result =
+      let
+        (incoming, edges') = partition (to here) edges
+        next = map input $ filter (noneFrom edges') incoming
+        stack' = stack ++ next
+      in
+        topoSort' edges' stack' (here:result)
+
+
+requirements :: [Reaction] -> M.Map Name (Int, [Material])
+requirements [] = M.empty
+requirements ((Reaction inputs (Material quantity name)):rs) = 
+  M.insert name (quantity, inputs) (requirements rs)
+
+
+quantitiesNeeded :: [Reaction] -> M.Map String Int
+quantitiesNeeded rs = foldl quantityNeeded (M.fromList [("FUEL", 1)]) (topoSort rs)
+  where
+    add q Nothing = Just q
+    add q (Just q') = Just (q' + q)
+    reqs = requirements rs
+
+    quantityNeeded :: M.Map String Int -> String -> M.Map String Int
+    quantityNeeded neededByName name =
+      case M.lookup name reqs of
+        Nothing -> neededByName
+        Just (makesQuantity, inputs) -> foldl addNeeded neededByName' inputs
+          where
+            Just needQuantity = M.lookup name neededByName
+            scale = (needQuantity `div` makesQuantity) + (if needQuantity `mod` makesQuantity > 0 then 1 else 0)
+            neededByName' = M.alter (add needQuantity) name neededByName
+            addNeeded n (Material q m) = M.alter (add (scale * q)) m n
+
+
+oreNeeded :: [Reaction] -> Int
+oreNeeded = fromMaybe 0 . M.lookup "ORE" . quantitiesNeeded
+
+
+testOreNeeded = do
+  reactions1 <- load "10 ORE => 10 A\
+                      \1 ORE => 1 B \
+                      \7 A, 1 B => 1 C \
+                      \7 A, 1 C => 1 D \
+                      \7 A, 1 D => 1 E \
+                      \7 A, 1 E => 1 FUEL"
+  oreNeeded reactions1 `shouldBe` 31
+
+  reactions2 <- load "9 ORE => 2 A \
+                     \8 ORE => 3 B \
+                     \7 ORE => 5 C \
+                     \3 A, 4 B => 1 AB \
+                     \5 B, 7 C => 1 BC \
+                     \4 C, 1 A => 1 CA \
+                     \2 AB, 3 BC, 4 CA => 1 FUEL"
+  oreNeeded reactions2 `shouldBe` 165
+
+  reactions3 <- load "157 ORE => 5 NZVS \
+                     \ 165 ORE => 6 DCFZ \
+                     \ 44 XJWVT, 5 KHKGT, 1 QDVJ, 29 NZVS, 9 GPVTF, 48 HKGWZ => 1 FUEL \
+                     \ 12 HKGWZ, 1 GPVTF, 8 PSHF => 9 QDVJ \
+                     \ 179 ORE => 7 PSHF \
+                     \ 177 ORE => 5 HKGWZ \
+                     \ 7 DCFZ, 7 PSHF => 2 XJWVT \
+                     \ 165 ORE => 2 GPVTF \
+                     \ 3 DCFZ, 7 NZVS, 5 HKGWZ, 10 PSHF => 8 KHKGT"
+  oreNeeded reactions3 `shouldBe` 13312
+
+  reactions4 <- load "2 VPVL, 7 FWMGM, 2 CXFTF, 11 MNCFX => 1 STKFG \
+                     \ 17 NVRVD, 3 JNWZP => 8 VPVL \
+                     \ 53 STKFG, 6 MNCFX, 46 VJHF, 81 HVMC, 68 CXFTF, 25 GNMV => 1 FUEL \
+                     \ 22 VJHF, 37 MNCFX => 5 FWMGM \
+                     \ 139 ORE => 4 NVRVD \
+                     \ 144 ORE => 7 JNWZP \
+                     \ 5 MNCFX, 7 RFSQX, 2 FWMGM, 2 VPVL, 19 CXFTF => 3 HVMC \
+                     \ 5 VJHF, 7 MNCFX, 9 VPVL, 37 CXFTF => 6 GNMV \
+                     \ 145 ORE => 6 MNCFX \
+                     \ 1 NVRVD => 8 CXFTF \
+                     \ 1 VJHF, 6 MNCFX => 4 RFSQX \
+                     \ 176 ORE => 6 VJHF"
+  oreNeeded reactions4 `shouldBe` 180697
+
+  reactions5 <- load "171 ORE => 8 CNZTR \
+                     \7 ZLQW, 3 BMBT, 9 XCVML, 26 XMNCP, 1 WPTQ, 2 MZWV, 1 RJRHP => 4 PLWSL \
+                     \114 ORE => 4 BHXH \
+                     \14 VRPVC => 6 BMBT \
+                     \6 BHXH, 18 KTJDG, 12 WPTQ, 7 PLWSL, 31 FHTLT, 37 ZDVW => 1 FUEL \
+                     \6 WPTQ, 2 BMBT, 8 ZLQW, 18 KTJDG, 1 XMNCP, 6 MZWV, 1 RJRHP => 6 FHTLT \
+                     \15 XDBXC, 2 LTCX, 1 VRPVC => 6 ZLQW \
+                     \13 WPTQ, 10 LTCX, 3 RJRHP, 14 XMNCP, 2 MZWV, 1 ZLQW => 1 ZDVW \
+                     \5 BMBT => 4 WPTQ \
+                     \189 ORE => 9 KTJDG \
+                     \1 MZWV, 17 XDBXC, 3 XCVML => 2 XMNCP \
+                     \12 VRPVC, 27 CNZTR => 2 XDBXC \
+                     \15 KTJDG, 12 BHXH => 5 XCVML \
+                     \3 BHXH, 2 VRPVC => 7 MZWV \
+                     \121 ORE => 7 VRPVC \
+                     \7 XCVML => 6 RJRHP \
+                     \5 BHXH, 4 VRPVC => 5 LTCX"
+  oreNeeded reactions5 `shouldBe` 2210736
+
+-- Main
+
+load :: String -> IO [Reaction]
+load text =
+  case parse reactions text of
+    Ok rs _ -> do
+      return rs
+    Err e a -> do
+      putStrLn $ "Expected " ++ e ++ " but found " ++ a
+      return []
+
+part1 :: [Reaction] -> IO ()
+part1 input = do
+  putStrLn $ "Part 1 .. " ++ (show $ oreNeeded input)
+
+
 main = do
   testParserCombinators
   testModelParser
+  testOreNeeded
 
-  input <- fmap (parse reactions) $ readFile "input.txt"
-  putStrLn (show input)
+  input <- readFile "input.txt" >>= load
+  part1 input
