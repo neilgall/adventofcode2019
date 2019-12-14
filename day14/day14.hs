@@ -1,3 +1,4 @@
+import Control.Monad (join)
 import Data.Char (isAsciiUpper, isDigit, isSpace)
 import Data.List (dropWhileEnd,intersperse, partition, stripPrefix)
 import Data.Maybe (fromMaybe)
@@ -27,6 +28,13 @@ instance Applicative (Parser input) where
   (Parser p) <*> (Parser q) = Parser $ \input ->
     case p input of
       Ok r rest -> fmap r (q rest)
+      Err e a -> Err e a
+
+instance Monad (Parser input) where
+  return = pure
+  (Parser p) >>= f = Parser $ \input ->
+    case p input of
+      Ok v rest -> let (Parser q) = f v in q rest
       Err e a -> Err e a
 
 parse :: Parser input value -> input -> ParseResult input value
@@ -78,6 +86,10 @@ sepBy (Parser p) (Parser q) = Parser $ \input ->
           Err e a -> Err e a
           Ok v rest' -> fmap (prepend v) (sepBy' rest')
 
+times :: Parser i a -> Int -> Parser i [a]
+times (Parser p) 0 = return []
+times p n = (:) <$> p <*> times p (n-1)
+
 
 testParserCombinators = do
   parse integer "foo" `shouldBe` Err "an integer" "foo"
@@ -102,6 +114,10 @@ testParserCombinators = do
   parse (integer `sepBy` (literal ",")) "foo" `shouldBe` Ok [] "foo"
   parse (integer `sepBy` (literal ",")) "1,foo" `shouldBe` Err "an integer" "foo"
 
+  parse (times (literal "a") 4) "aaaafoo" `shouldBe` Ok [(),(),(),()] "foo"
+  parse (times (literal "a") 4) "aaafoo" `shouldBe` Err "'a'" "foo"
+  parse (integer >>= times (literal "a")) "4aaaafoo" `shouldBe` Ok [(),(),(),()] "foo"
+  parse (integer >>= times (literal "a")) "4aaafoo" `shouldBe` Err "'a'" "foo"
 
 -- Data model
 
