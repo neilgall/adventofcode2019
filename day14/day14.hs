@@ -113,21 +113,21 @@ instance Show Reaction where
 
 -- Input parser
 
-quantity :: Parser String Material
-quantity = Material <$> (integer `followedBy` whitespace) <*> chemical
+material :: Parser String Material
+material = Material <$> (integer `followedBy` whitespace) <*> chemical
 
 reaction :: Parser String Reaction
-reaction = Reaction <$> inputs <*> outputs
+reaction = Reaction <$> inputs <*> output
   where
-    inputs = quantity `sepBy` literal ", "
-    outputs = literal " => " `before` quantity
+    inputs = material `sepBy` literal ", "
+    output = literal " => " `before` material
 
 reactions :: Parser String [Reaction]
 reactions = reaction `sepBy` whitespace
 
 
 testModelParser = do
-  parse quantity "54 FUEL" `shouldBe` Ok (Material 54 "FUEL") ""
+  parse material "54 FUEL" `shouldBe` Ok (Material 54 "FUEL") ""
   parse reaction "8 A, 1 B => 1 C" `shouldBe` Ok (Reaction [Material 8 "A", Material 1 "B"] (Material 1 "C")) ""
 
 
