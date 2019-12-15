@@ -357,7 +357,7 @@ opcode channel_input(void *io_context) {
 
 	do {
 		int r = read(c->client_sockfd, &buf, 1);
-		if (r == -1) {
+		if (r != 1) {
 			return 0;
 		}
 	} while (buf < '1' || '4' < buf);
@@ -384,23 +384,23 @@ void channel_output(void *io_context, opcode data) {
 	}
 }
 
-struct channel *new_channel(struct program *program) {
+struct channel *new_channel(void) {
 	struct channel *c = (struct channel *)malloc(sizeof(struct channel));
-	c->program = copy_program(program);
-	c->program->input = channel_input;
-	c->program->output = channel_output;
-	c->program->io_context = c;
 	c->server_sockfd = open_server_socket(5000);
 	return c;
 }
 
 void free_channel(struct channel *c) {
 	close(c->server_sockfd);
-	free_program(c->program);
 	free(c);	
 }
 
-void run_channel(struct channel *c) {
+void run_channel(struct channel *c, struct program *program) {
+	c->program = copy_program(program);
+	c->program->input = channel_input;
+	c->program->output = channel_output;
+	c->program->io_context = c;
+
 	struct sockaddr_in client_address;
 	socklen_t client_len = sizeof(client_address);
 	c->client_sockfd = accept(c->server_sockfd, (struct sockaddr *)&client_address, &client_len);
@@ -410,14 +410,17 @@ void run_channel(struct channel *c) {
 	printf("exit code %d\n", exit);
 
 	close(c->client_sockfd);
+	free_program(c->program);
 }
 
 
 int main(int argc, char **argv) {
 	struct program *program = load_program("input.txt");
-	struct channel *channel = new_channel(program);
+	struct channel *channel = new_channel();
 
-	run_channel(channel);
+	while (1) {
+		run_channel(channel, program);
+	}
 
 	free_channel(channel);
 	free_program(program);
