@@ -69,9 +69,6 @@ data Position = Position Int Int
 data Cell = Unexplored | Empty | Wall | Oxygen
   deriving (Eq, Show)
 
-data BoundingBox = BoundingBox Position Position
-  deriving (Show)
-
 type Space = M.Map Position Cell
 
 data RepairDroid = RepairDroid {
@@ -244,7 +241,6 @@ exploreClient sock = run makeDroid
       sendAll sock (messageFromMove move')
       msg <- recv sock 1
       let status = statusFromMessage msg
-      -- let hackStatus = if status == Oxygen then Clear else status
       run $ applyStatus droid move' backtrack (statusFromMessage msg)
 
 fillOxygen :: Space -> Int
