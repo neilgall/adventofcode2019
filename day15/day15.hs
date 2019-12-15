@@ -36,7 +36,7 @@ testClient sock = do
 data Move = North | South | East | West
   deriving (Eq, Show)
 
-data Status = Blocked | Clear | Oxygen
+data Status = Blocked | Clear | OxygenSystem
   deriving (Eq, Show)
 
 reverseMove :: Move -> Move
@@ -58,7 +58,7 @@ statusFromMessage = status . B.head
   where
     status '0' = Blocked
     status '1' = Clear
-    status '2' = Oxygen
+    status '2' = OxygenSystem
 
 
 -- Exploration model
@@ -66,14 +66,16 @@ statusFromMessage = status . B.head
 data Position = Position Int Int
   deriving (Eq, Ord, Show)
 
-data Cell = Unexplored | Empty | Wall | Target
+data Cell = Unexplored | Empty | Wall | Oxygen
   deriving (Eq, Show)
 
 data BoundingBox = BoundingBox Position Position
   deriving (Show)
 
+type Space = M.Map Position Cell
+
 data RepairDroid = RepairDroid {
-  area      :: M.Map Position Cell,
+  space     :: Space,
   position  :: Position,
   oxygenPos :: Maybe Position,
   pastMoves :: [Move]
@@ -100,11 +102,11 @@ scan droid showCell = header ++ body
     cell y x =
         let
           pos = Position x y
-          cell = fromMaybe Unexplored $ M.lookup pos (area droid)
+          cell = fromMaybe Unexplored $ M.lookup pos (space droid)
         in
           showCell pos cell
 
-    positions = [Position (-5) (-5), Position 5 5] ++ M.keys (area droid)
+    positions = [Position (-5) (-5), Position 5 5] ++ M.keys (space droid)
     minx = L.minimum (map x positions)
     maxx = L.maximum (map x positions)
     miny = L.minimum (map y positions)
@@ -125,13 +127,13 @@ visualise droid = do
         else case c of
           Wall -> '#'
           Empty -> '.'
-          Target -> 'O'
+          Oxygen -> 'O'
           Unexplored -> ' '
 
 
 makeDroid :: RepairDroid
 makeDroid = RepairDroid { 
-  area      = M.empty,
+  space     = M.empty,
   position  = Position 0 0,
   oxygenPos = Nothing,
   pastMoves = []
@@ -155,28 +157,27 @@ applyStatus droid move backtrack status =
   let
     moveList = if backtrack then tail (pastMoves droid) else move:(pastMoves droid)
     targetPos = applyMove (position droid) move
-    set x = M.insert targetPos x (area droid)
+    set x = M.insert targetPos x (space droid)
   in
     case status of
       Blocked -> 
-        droid { area = set Wall }
+        droid { space = set Wall }
       Clear ->
-        droid { area = set Empty, position = targetPos, pastMoves = moveList }
-      Oxygen ->
-        droid { area = set Target, position = targetPos, oxygenPos = Just targetPos, pastMoves = moveList }
+        droid { space = set Empty, position = targetPos, pastMoves = moveList }
+      OxygenSystem ->
+        droid { space = set Oxygen, position = targetPos, oxygenPos = Just targetPos, pastMoves = moveList }
 
 
 explore :: RepairDroid -> [Move]
 explore droid = catMaybes [look d | d <- [North,East,South,West]]
   where
     pos = position droid
-    look d = case M.lookup (applyMove pos d) (area droid) of
+    look d = case M.lookup (applyMove pos d) (space droid) of
       Nothing -> Just d
       Just _ -> Nothing
 
 data Action 
-  = Stop Position
-  | Moves [Move]
+  = Moves [Move]
   | Backtrack Move
   | Failure
   deriving (Show)
@@ -186,15 +187,11 @@ backtrackMove = reverseMove . head . pastMoves
 
 nextAction :: RepairDroid -> Action
 nextAction droid = 
-  case oxygenPos droid of
-    Just pos ->
-      Stop pos
-    Nothing -> 
-      if null moves
-        then if null (pastMoves droid)
-          then Failure
-          else Backtrack (backtrackMove droid)
-        else Moves moves
+  if null moves
+    then if null (pastMoves droid)
+      then Failure
+      else Backtrack (backtrackMove droid)
+    else Moves moves
   where
     moves = explore droid
 
@@ -207,15 +204,17 @@ findOxygenClient sock = run makeDroid
     run droid = do
       -- visualise droid
       -- getLine
-      case nextAction droid of
-        Stop pos -> 
+      case oxygenPos droid of
+        Just pos ->
           return droid
-        Moves moves -> do
-          foldM doMoveIfNotFound droid moves
-        Backtrack move ->
-          doMove droid True move
-        Failure ->
-          return droid
+        Nothing ->
+          case nextAction droid of
+            Moves moves -> do
+              foldM doMoveIfNotFound droid moves
+            Backtrack move ->
+              doMove droid True move
+            Failure ->
+              return droid
 
     doMoveIfNotFound droid move' =
       case oxygenPos droid of
@@ -227,6 +226,63 @@ findOxygenClient sock = run makeDroid
       msg <- recv sock 1
       run $ applyStatus droid move' backtrack (statusFromMessage msg)
 
-main = do
+exploreClient :: Socket -> IO RepairDroid
+exploreClient sock = run makeDroid
+  where
+    run droid = do
+      -- visualise droid
+      -- getLine
+      case nextAction droid of
+        Moves moves -> do
+          foldM (doMove False) droid moves
+        Backtrack move ->
+          doMove True droid move
+        Failure ->
+          return droid
+
+    doMove backtrack droid move' = do
+      sendAll sock (messageFromMove move')
+      msg <- recv sock 1
+      let status = statusFromMessage msg
+      -- let hackStatus = if status == Oxygen then Clear else status
+      run $ applyStatus droid move' backtrack (statusFromMessage msg)
+
+fillOxygen :: Space -> Int
+fillOxygen space = fillOxygen' 0 space
+  where
+    fillOxygen' steps space = 
+      if null (empty space)
+        then steps
+        else fillOxygen' (steps+1) (fill space)
+
+    empty space =
+      map fst $ filter (\(_,c) -> c == Empty) (M.assocs space)
+
+    emptyNextToOxygen space =
+      filter (hasOxygenNeighbour space) (empty space)
+
+    hasOxygenNeighbour space pos =
+      any (\p -> M.lookup p space == Just Oxygen) (neighbours pos)
+
+    neighbours pos =
+      [applyMove pos d | d <- [North, South, East, West]]
+
+    fill space = 
+      foldl fillOxygen space (emptyNextToOxygen space)
+
+    fillOxygen space pos = 
+      M.insert pos Oxygen space
+
+part1 = do
   r <- runClient findOxygenClient
   putStrLn $ "Part 1 .. " ++ (show $ length $ pastMoves r)
+
+part2 = do
+  r <- runClient exploreClient
+  let steps = fillOxygen (space r)
+  putStrLn $ "Part 2 .. " ++ (show steps)
+
+main = do
+  part1
+  part2
+
