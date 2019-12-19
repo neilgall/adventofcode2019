@@ -347,7 +347,7 @@ int open_server_socket(int port) {
         perror("listen");
         exit(EXIT_FAILURE);
     }
-    fprintf(stderr, "listening on port %d\n", port);
+    printf("listening on port %d\n", port);
     return server_sockfd;
 }
 
@@ -355,32 +355,36 @@ opcode channel_input(void *io_context) {
 	struct channel *c = (struct channel *)io_context;
 	char buf = 0;
 
-	do {
-		int r = read(c->client_sockfd, &buf, 1);
-		if (r != 1) {
-			return 0;
-		}
-	} while (buf < '1' || '4' < buf);
-
-	opcode in = buf - '0';
-
-	if (debug_channel) {
-		printf("channel read %d\n", in);
+	int r = read(c->client_sockfd, &buf, 1);
+	if (r != 1) {
+		return 0;
 	}
 
-	return in;
+	if (debug_channel) {
+		printf("channel read %d\n", (int)buf);
+	}
+
+	return buf;
 }
 
 void channel_output(void *io_context, opcode data) {
 	struct channel *c = (struct channel *)io_context;
-	char buf = (char)data;
 
 	if (debug_channel) {
 		printf("channel write %d\n", data);
 	}
 
-	if (write(c->client_sockfd, &buf, 1) != 1) {
-		perror("write");
+	if (data <= 255) {
+		char buf = (char)data;
+		if (write(c->client_sockfd, &buf, 1) != 1) {
+			perror("write");
+		}
+	} else {
+		char buf[20];
+		size_t len = snprintf(buf, sizeof(buf), "%d\n", data);
+		if (write(c->client_sockfd, buf, len) != len) {
+			perror("write");
+		}
 	}
 }
 
@@ -395,11 +399,12 @@ void free_channel(struct channel *c) {
 	free(c);	
 }
 
-void run_channel(struct channel *c, struct program *program) {
+void run_channel(struct channel *c, struct program *program, opcode mode) {
 	c->program = copy_program(program);
 	c->program->input = channel_input;
 	c->program->output = channel_output;
 	c->program->io_context = c;
+	c->program->memory[0] = mode;
 
 	struct sockaddr_in client_address;
 	socklen_t client_len = sizeof(client_address);
@@ -418,9 +423,8 @@ int main(int argc, char **argv) {
 	struct program *program = load_program("input.txt");
 	struct channel *channel = new_channel();
 
-	while (1) {
-		run_channel(channel, program);
-	}
+	int mode = (argc > 1) ? atoi(argv[1]) : 1;
+	run_channel(channel, program, mode);
 
 	free_channel(channel);
 	free_program(program);
