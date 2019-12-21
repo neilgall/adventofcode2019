@@ -60,10 +60,6 @@ impl PartialEq for LayerPos {
 }
 
 impl LayerPos {
-	fn with_layer(&self, layer: i32) -> LayerPos {
-		LayerPos { x: self.x, y: self.y, layer: layer }
-	}
-
 	fn jump(&self, from: &LayerPos) -> LayerPos {
 		LayerPos { x: self.x, y: self.y, layer: from.layer + self.layer }
 	}
@@ -96,18 +92,50 @@ impl Dir {
 
 // Route
 
+#[derive(Copy,Clone,Debug,PartialEq,Eq)]
+enum PortalDir {
+	IN, OUT
+}
+
 #[derive(Debug)]
 struct Route {
-	steps: Vec<LayerPos>
+	steps: Vec<LayerPos>,
+	portals: Vec<LayerPos>,
+	portal_dir: PortalDir
+}
+
+fn portal_dir_between(p1: &LayerPos, p2: &LayerPos) -> Option<PortalDir> {
+	if p1.layer > p2.layer { 
+		Some(PortalDir::IN)
+	} else if p1.layer < p2.layer {
+		Some(PortalDir::OUT)
+	} else {
+		None
+	}
 }
 
 impl Route {
 	fn new() -> Route {
-		Route { steps: vec![] }
+		Route { 
+			steps: vec![],
+			portals: vec![],
+			portal_dir: PortalDir::IN
+		}
 	}
 
-	fn add(&mut self, p: &LayerPos) {
-		self.steps.push(*p);
+	fn portal_dir_if_adding(&self, pos: &LayerPos) -> Option<PortalDir> {
+		portal_dir_between(self.steps.last()?, pos)
+	}
+
+	fn add(&mut self, pos: &LayerPos) {
+		match self.portal_dir_if_adding(pos) {
+			None => {},
+			Some(dir) => {
+				self.portals.push(*pos);
+				self.portal_dir = dir
+			}
+		}
+		self.steps.push(*pos);
 	}
 
 	fn len(&self) -> usize {
@@ -116,6 +144,35 @@ impl Route {
 
 	fn contains(&self, p: &LayerPos) -> bool {
 		self.steps.contains(p)
+	}
+
+	fn contains_on_any_layer(&self, p: &Pos) -> bool {
+		self.steps.iter().any(|s| s.pos() == *p)
+	}
+
+	fn adding_would_create_loop(&self, pos: &LayerPos) -> bool {
+		match self.portals.iter().rposition(|s| s.pos() == pos.pos()) {
+			None => false,
+			Some(i) => {
+				if i == 0 {
+					false
+				} else {
+					let dir = self.portal_dir_if_adding(pos);
+					let prev_dir = portal_dir_between(&self.portals[i-1], &self.portals[i]);
+					dir == prev_dir
+				}
+			}
+		}
+	}
+}
+
+impl Clone for Route {
+	fn clone(&self) -> Self {
+		Route { 
+			steps: self.steps.to_vec(),
+			portals: self.portals.to_vec(),
+			portal_dir: self.portal_dir
+		}
 	}
 }
 
@@ -269,44 +326,45 @@ impl Maze {
 	}
 
 	fn find_routes(&self, visual: bool) -> Vec<Route> {
-		let mut visited = HashSet::new();
-		visited.insert(self.start);
-		self.search(&self.start, &visited, visual)
-	}
+		let mut routes = Vec::new();
+		let mut stack = Vec::new();
+		stack.push( (self.start, Route::new()) );
 
-	fn search(&self, pos: &LayerPos, visited: &HashSet<LayerPos>, visual: bool) -> Vec<Route> {
-		if visual {
-			print!("{}{}", clear::All, cursor::Goto(1,1));
-			self.visualise(&Route::new(), pos, visited);
-		}
+		loop {
+			match stack.pop() {
+				None => break,
+				Some((pos, route)) => {
+					if visual {
+						print!("{}{}", clear::All, cursor::Goto(1,1));
+						self.visualise(&route, &pos);
+					}
 
-		let mut routes: Vec<Route> = Vec::new();
-		if pos.layer == 0 && *pos == self.end {
-			routes.push(Route::new());
-		} else {
-			for n in self.neighbours(pos) {
-				if !visited.contains(&n) {
-					let mut v = visited.clone();
-					v.insert(n);
-					self.search(&n, &v, visual).into_iter().for_each(|mut r| {
-						r.add(&pos);
-						routes.push(r)
-					});
+					if pos.layer == 0 && pos == self.end {
+						routes.push(route);
+					} else {
+						for n in self.neighbours(&pos) {
+							if !route.contains(&n) && !route.adding_would_create_loop(&n) {
+								let mut r = route.clone();
+								r.add(&n);
+								stack.push((n, r));
+							}
+						}
+					}
 				}
 			}
 		}
 		routes
 	}
 
-	fn visualise(&self, route: &Route, pos: &LayerPos, visited: &HashSet<LayerPos>) {
+	fn visualise(&self, route: &Route, pos: &LayerPos) {
 		for (y, row) in self.grid.iter().enumerate() {
 			for (x, c) in row.iter().enumerate() {
 				let p = Pos { x, y };
 				if p == pos.pos() {
 					print!("@");
-				} else if route.contains(&pos) {
+				} else if route.contains(&p.on_layer(pos.layer)) {
 					print!("+");
-				} else if visited.iter().any(|v| v.pos() == p) {
+				} else if route.contains_on_any_layer(&p) {
 					print!("~");
 				} else if self.portals.contains_key(&p) {
 					print!("*");
@@ -317,18 +375,38 @@ impl Maze {
 			println!();
 		}
 		print!("pos={} neighbours=", pos);
-		for n in self.neighbours(pos) { print!("{}  ", n); }
+		for n in self.neighbours(pos) { 
+			let x = if route.adding_would_create_loop(&n) { " *loop*" } else if route.contains(&n) { "*" } else { "" };
+			print!("{}{}  ", n, x);
+		}
+		println!(" route={} {:?}", route.len(), route.portal_dir);
+		for p in route.portals.iter() { print!("{}  ", p); }
 		println!();
 
-		let mut i = String::new();
-		stdin().read_line(&mut i).unwrap();
+		if self.portals.contains_key(&pos.pos()) {
+			let mut i = String::new();
+			stdin().read_line(&mut i).unwrap();
+		}
 	}
 
 }
 
 
+#[test]
+fn test_route_loop_detection() {
+	let mut r = Route::new();
+	r.add(&LayerPos { x: 0, y: 2, layer: 0 });
+	r.add(&LayerPos { x: 0, y: 1, layer: 0 });
+	r.add(&LayerPos { x: 0, y: 0, layer: 0 });
+	r.add(&LayerPos { x: 1, y: 0, layer: 0 });
+	r.add(&LayerPos { x: 2, y: 0, layer: 0 });
+	r.add(&LayerPos { x: 0, y: 0, layer: 1 });
+	r.add(&LayerPos { x: 1, y: 0, layer: 1 });
+	r.add(&LayerPos { x: 2, y: 0, layer: 1 });
+	assert!(r.adding_would_create_loop(&LayerPos { x: 0, y: 0, layer: 2 }));
+}
 
-// #[test]
+#[test]
 fn test_example_map() {
 	let maze = Maze::new("
                    A               
@@ -415,7 +493,7 @@ RE....#.#                           #......RF
                A O F   N                     
                A A D   M                     ", true);
 
-	let routes = maze.find_routes(false);
+	let routes = maze.find_routes(true);
 	let shortest = routes.iter().min_by_key(|&r| r.len());
 	assert_eq!(Some(396), shortest.map(Route::len));
 }
