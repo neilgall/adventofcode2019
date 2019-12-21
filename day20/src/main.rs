@@ -1,7 +1,9 @@
 extern crate termion;
 
 use std::collections::{HashMap, HashSet};
+use std::fmt;
 use std::fs::File;
+use std::io::stdin;
 use std::io::prelude::*;
 use std::ops::{Index, IndexMut};
 use std::slice::Iter;
@@ -16,9 +18,9 @@ fn read_file(filename: &str) -> std::io::Result<String> {
 }
 
 
-// Position
+// Position without Layer
 
-#[derive(Copy,Clone,Eq,Hash,Debug)]
+#[derive(Copy,Clone,Debug,Eq,Hash)]
 struct Pos {
 	x: usize,
 	y: usize
@@ -30,6 +32,52 @@ impl PartialEq for Pos {
 	}
 }
 
+impl Pos {
+	fn on_layer(&self, layer: i32) -> LayerPos {
+		LayerPos { x: self.x, y: self.y, layer: layer }
+	}
+}
+
+impl fmt::Display for Pos {
+	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+		write!(f, "{},{}", self.x, self.y)
+	}
+}
+
+// Position with Layer
+
+#[derive(Copy,Clone,Debug,Eq,Hash)]
+struct LayerPos {
+	x: usize,
+	y: usize,
+	layer: i32
+}
+
+impl PartialEq for LayerPos {
+	fn eq(&self, other: &Self) -> bool {
+		self.x == other.x && self.y == other.y && self.layer == other.layer
+	}
+}
+
+impl LayerPos {
+	fn with_layer(&self, layer: i32) -> LayerPos {
+		LayerPos { x: self.x, y: self.y, layer: layer }
+	}
+
+	fn jump(&self, from: &LayerPos) -> LayerPos {
+		LayerPos { x: self.x, y: self.y, layer: from.layer + self.layer }
+	}
+
+	fn pos(&self) -> Pos {
+		Pos { x: self.x, y: self.y }
+	}
+}
+
+impl fmt::Display for LayerPos {
+	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+		write!(f, "{},{},{}", self.x, self.y, self.layer)
+	}
+}
 
 // Direction
 
@@ -50,7 +98,7 @@ impl Dir {
 
 #[derive(Debug)]
 struct Route {
-	steps: Vec<Pos>
+	steps: Vec<LayerPos>
 }
 
 impl Route {
@@ -58,7 +106,7 @@ impl Route {
 		Route { steps: vec![] }
 	}
 
-	fn add(&mut self, p: &Pos) {
+	fn add(&mut self, p: &LayerPos) {
 		self.steps.push(*p);
 	}
 
@@ -66,7 +114,7 @@ impl Route {
 		self.steps.len()
 	}
 
-	fn contains(&self, p: &Pos) -> bool {
+	fn contains(&self, p: &LayerPos) -> bool {
 		self.steps.contains(p)
 	}
 }
@@ -74,14 +122,13 @@ impl Route {
 
 // Maze 
 
-type Portals = HashMap<Pos, Pos>;
-
 #[derive(Debug)]
 struct Maze {
 	grid: Vec<Vec<char>>,
-	portals: Portals,
-	start: Pos,
-	end: Pos
+	layered: bool,
+	portals: HashMap<Pos, LayerPos>,
+	start: LayerPos,
+	end: LayerPos
 }
 
 impl Index<&Pos> for Maze {
@@ -99,7 +146,7 @@ impl IndexMut<&Pos> for Maze {
 }
 
 impl Maze {
-	fn new(input: &str) -> Maze {
+	fn new(input: &str, layered: bool) -> Maze {
 		let height: usize = input.lines().count();
 		let width: usize = input.lines().map(|line| line.len()).max().unwrap_or(0);
 
@@ -112,9 +159,10 @@ impl Maze {
 
 		let mut maze = Maze {
 			grid,
+			layered,
 			portals: HashMap::new(),
-			start: Pos { x: 0, y: 0 },
-			end: Pos { x: 0, y: 0 }
+			start: LayerPos { x: 0, y: 0, layer: 0 },
+			end: LayerPos { x: 0, y: 0, layer: 0 }
 		};
 
 		maze.find_portals();
@@ -138,59 +186,109 @@ impl Maze {
 	}
 
 	fn find_portals(&mut self) {
-		let mut scan = MazeScan::new();
+		let mut portals: HashMap<String, Vec<LayerPos>> = HashMap::new();
 
 		for y in 0..self.grid.len() {
 			for x in 0..self.grid[y].len() {
 				let pos = Pos { x, y };
-				for dir in Dir::iter() {
-					scan.check(self, &pos, dir);
+				if self[&pos].is_uppercase() {
+					for dir in Dir::iter() {
+						self.check_for_portal(&pos, dir, &mut portals);
+					}
 				}
 			}
 		}
 
-		for (name, ps) in scan.names_to_pos {
+		for (name, ps) in portals {
 			if ps.len() == 2 {
-				self.portals.insert(ps[0], ps[1]);
-				self.portals.insert(ps[1], ps[0]);
+				self.portals.insert(ps[0].pos(), ps[1]);
+				self.portals.insert(ps[1].pos(), ps[0]);
 			} else {
 				eprintln!("unmatched name {}", name);
 			}
 		}
 	}
 
-	fn neighbours(&self, pos: &Pos) -> Vec<Pos> {
+	fn check_for_portal(&mut self, pos: &Pos, dir: &Dir, portals: &mut HashMap<String, Vec<LayerPos>>) {
+		for one in self.go(pos, dir).iter() {
+			if self[one].is_uppercase() {
+				for two in self.go(one, dir).iter() {
+					if self[two] == '.' && !portals.values().any(|ps| ps.iter().any(|p| p.pos() == *two)) {
+						let c1 = self[pos] as u8;
+						let c2 = self[one] as u8;
+						let cs = match dir {
+							Dir::UP   => vec![c2, c1],
+							Dir::LEFT => vec![c2, c1],
+							_         => vec![c1, c2]
+						};
+						let name = String::from_utf8(cs).unwrap();
+
+						if name == "AA" {
+							self.start = two.on_layer(0);
+						} else if name == "ZZ" {
+							self.end = two.on_layer(0);
+						} else {
+							let portal_vec = portals.entry(name).or_insert(vec![]);
+							if self.layered {
+								if self.near_edge(two) {
+									portal_vec.push(two.on_layer(1));
+								} else {
+									portal_vec.push(two.on_layer(-1));
+								}
+							} else {
+								portal_vec.push(two.on_layer(0));
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	fn near_edge(&self, p: &Pos) -> bool {
+		p.y < 5 || p.x < 5 || self.grid.len()-5 < p.y || self.grid[p.y].len()-5 < p.x
+	}
+
+
+	fn neighbours(&self, pos: &LayerPos) -> Vec<LayerPos> {
 		let mut ns = Vec::new();
 		for dir in Dir::iter() {
-			match self.go(&pos, dir) {
-				Some(p) => ns.push(p),
+			match self.go(&pos.pos(), dir) {
+				Some(p) => if self[&p] == '.' { ns.push(p.on_layer(pos.layer)) },
 				None => {}
 			}
 		}
-		match self.portals.get(pos) {
-			Some(p) => ns.push(*p),
+		match self.portals.get(&pos.pos()) {
+			Some(p) => {
+				let q = p.jump(pos);
+				if q.layer >= 0 { ns.push(q); }
+			}
 			None => {}
 		}
 		ns
 	}
 
-	fn find_routes(&self) -> Vec<Route> {
-		self.search(&self.start, &HashSet::new())
+	fn find_routes(&self, visual: bool) -> Vec<Route> {
+		let mut visited = HashSet::new();
+		visited.insert(self.start);
+		self.search(&self.start, &visited, visual)
 	}
 
-	fn search(&self, pos: &Pos, visited: &HashSet<Pos>) -> Vec<Route> {
-		// print!("{}{}", clear::All, cursor::Goto(1,1));
-		// self.visualise(&Route::new(pos), visited);
+	fn search(&self, pos: &LayerPos, visited: &HashSet<LayerPos>, visual: bool) -> Vec<Route> {
+		if visual {
+			print!("{}{}", clear::All, cursor::Goto(1,1));
+			self.visualise(&Route::new(), pos, visited);
+		}
 
 		let mut routes: Vec<Route> = Vec::new();
-		if *pos == self.end {
+		if pos.layer == 0 && *pos == self.end {
 			routes.push(Route::new());
 		} else {
 			for n in self.neighbours(pos) {
-				if self[&n] == '.' && !visited.contains(&n) {
+				if !visited.contains(&n) {
 					let mut v = visited.clone();
 					v.insert(n);
-					self.search(&n, &v).into_iter().for_each(|mut r| {
+					self.search(&n, &v, visual).into_iter().for_each(|mut r| {
 						r.add(&pos);
 						routes.push(r)
 					});
@@ -200,13 +298,15 @@ impl Maze {
 		routes
 	}
 
-	fn visualise(&self, route: &Route, visited: &HashSet<Pos>) {
+	fn visualise(&self, route: &Route, pos: &LayerPos, visited: &HashSet<LayerPos>) {
 		for (y, row) in self.grid.iter().enumerate() {
 			for (x, c) in row.iter().enumerate() {
 				let p = Pos { x, y };
-				if route.contains(&p) {
+				if p == pos.pos() {
+					print!("@");
+				} else if route.contains(&pos) {
 					print!("+");
-				} else if visited.contains(&p) {
+				} else if visited.iter().any(|v| v.pos() == p) {
 					print!("~");
 				} else if self.portals.contains_key(&p) {
 					print!("*");
@@ -216,58 +316,19 @@ impl Maze {
 			}
 			println!();
 		}
+		print!("pos={} neighbours=", pos);
+		for n in self.neighbours(pos) { print!("{}  ", n); }
+		println!();
+
+		let mut i = String::new();
+		stdin().read_line(&mut i).unwrap();
 	}
 
 }
 
 
-// Maze Scanner
 
-struct MazeScan {
-	names_to_pos: HashMap<String, Vec<Pos>>
-}
-
-impl MazeScan {
-	fn new() -> MazeScan {
-		MazeScan { names_to_pos: HashMap::new() }
-	}
-
-	fn found(&self, p: &Pos) -> bool {
-		self.names_to_pos.values().any(|ps| ps.contains(p))
-	}
-
-	fn check(&mut self, maze: &mut Maze, pos: &Pos, dir: &Dir) {
-		if maze[pos].is_uppercase() {
-			for p in maze.go(pos, dir).iter() {
-				if maze[p].is_uppercase() {
-					for q in maze.go(p, dir).iter() {
-						if maze[q] == '.' && !self.found(q) {
-							let c1 = maze[pos] as u8;
-							let c2 = maze[p] as u8;
-							let cs = match dir {
-								Dir::UP   => vec![c2, c1],
-								Dir::LEFT => vec![c2, c1],
-								_         => vec![c1, c2]
-							};
-							let name = String::from_utf8(cs).unwrap();
-							if name == "AA" {
-								maze.start = *q;
-							} else if name == "ZZ" {
-								maze.end = *q;
-							} else {
-								self.names_to_pos.entry(name).or_insert(vec![]).push(*q)
-							}
-						}
-					}
-				}
-			}
-		}
-	}
-}
-
-
-
-#[test]
+// #[test]
 fn test_example_map() {
 	let maze = Maze::new("
                    A               
@@ -306,23 +367,78 @@ YN......#               VT..#....QG
   #.#.........#...#.............#  
   #########.###.###.#############  
            B   J   C               
-           U   P   P               ");
+           U   P   P               ", false);
 
-	let routes = maze.find_routes();
+	let routes = maze.find_routes(false);
 	let shortest = routes.iter().min_by_key(|&r| r.len());
-	assert_eq!(58, shortest.unwrap().len());
+	assert_eq!(Some(58), shortest.map(Route::len));
+}
+
+#[test]
+fn test_example_layered_map() {
+	let maze = Maze::new("
+             Z L X W       C                 
+             Z P Q B       K                 
+  ###########.#.#.#.#######.###############  
+  #...#.......#.#.......#.#.......#.#.#...#  
+  ###.#.#.#.#.#.#.#.###.#.#.#######.#.#.###  
+  #.#...#.#.#...#.#.#...#...#...#.#.......#  
+  #.###.#######.###.###.#.###.###.#.#######  
+  #...#.......#.#...#...#.............#...#  
+  #.#########.#######.#.#######.#######.###  
+  #...#.#    F       R I       Z    #.#.#.#  
+  #.###.#    D       E C       H    #.#.#.#  
+  #.#...#                           #...#.#  
+  #.###.#                           #.###.#  
+  #.#....OA                       WB..#.#..ZH
+  #.###.#                           #.#.#.#  
+CJ......#                           #.....#  
+  #######                           #######  
+  #.#....CK                         #......IC
+  #.###.#                           #.###.#  
+  #.....#                           #...#.#  
+  ###.###                           #.#.#.#  
+XF....#.#                         RF..#.#.#  
+  #####.#                           #######  
+  #......CJ                       NM..#...#  
+  ###.#.#                           #.###.#  
+RE....#.#                           #......RF
+  ###.###        X   X       L      #.#.#.#  
+  #.....#        F   Q       P      #.#.#.#  
+  ###.###########.###.#######.#########.###  
+  #.....#...#.....#.......#...#.....#.#...#  
+  #####.#.###.#######.#######.###.###.#.#.#  
+  #.......#.......#.#.#.#.#...#...#...#.#.#  
+  #####.###.#####.#.#.#.#.###.###.#.###.###  
+  #.......#.....#.#...#...............#...#  
+  #############.#.#.###.###################  
+               A O F   N                     
+               A A D   M                     ", true);
+
+	let routes = maze.find_routes(false);
+	let shortest = routes.iter().min_by_key(|&r| r.len());
+	assert_eq!(Some(396), shortest.map(Route::len));
 }
 
 
-fn part1(maze: &Maze) {
-	let routes = maze.find_routes();
+fn part1(input: &str) {
+	let maze = Maze::new(input, false);
+	let routes = maze.find_routes(false);
+	let shortest = routes.iter().min_by_key(|&r| r.len());
+	println!("Part 1 .. {}", shortest.unwrap().len());	
+}
+
+fn part2(input: &str) {
+	let maze = Maze::new(input, true);
+	let routes = maze.find_routes(false);
 	let shortest = routes.iter().min_by_key(|&r| r.len());
 	println!("Part 1 .. {}", shortest.unwrap().len());	
 }
 
 fn main() -> Result<(), std::io::Error> {
-	let input = Maze::new(&read_file("input.txt")?);
+	let input = read_file("input.txt")?;
 	part1(&input);
+	part2(&input);
 
 	Ok(())
 }
