@@ -58,10 +58,8 @@ impl Route {
 		Route { steps: vec![] }
 	}
 
-	fn add(&self, p: &Pos) -> Route {
-		let mut steps = self.steps.to_vec();
-		steps.push(*p);
-		Route { steps }
+	fn add(&mut self, p: &Pos) {
+		self.steps.push(*p);
 	}
 
 	fn len(&self) -> usize {
@@ -192,9 +190,10 @@ impl Maze {
 				if self[&n] == '.' && !visited.contains(&n) {
 					let mut v = visited.clone();
 					v.insert(n);
-					for r in self.search(&n, &v).iter() {
-						routes.push(r.add(pos));
-					}
+					self.search(&n, &v).into_iter().for_each(|mut r| {
+						r.add(&pos);
+						routes.push(r)
+					});
 				}
 			}
 		}
