@@ -1,6 +1,6 @@
 extern crate termion;
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::fmt;
 use std::fs::File;
 use std::io::stdin;
@@ -128,12 +128,9 @@ impl Route {
 	}
 
 	fn add(&mut self, pos: &LayerPos) {
-		match self.portal_dir_if_adding(pos) {
-			None => {},
-			Some(dir) => {
-				self.portals.push(*pos);
-				self.portal_dir = dir
-			}
+		if let Some(dir) = self.portal_dir_if_adding(pos) {
+			self.portals.push(*pos);
+			self.portal_dir = dir
 		}
 		self.steps.push(*pos);
 	}
@@ -151,17 +148,16 @@ impl Route {
 	}
 
 	fn adding_would_create_loop(&self, pos: &LayerPos) -> bool {
-		match self.portals.iter().rposition(|s| s.pos() == pos.pos()) {
-			None => false,
-			Some(i) => {
-				if i == 0 {
-					false
-				} else {
-					let dir = self.portal_dir_if_adding(pos);
-					let prev_dir = portal_dir_between(&self.portals[i-1], &self.portals[i]);
-					dir == prev_dir
-				}
+		if let Some(i) = self.portals.iter().rposition(|s| s.pos() == pos.pos()) {
+			if i == 0 {
+				false
+			} else {
+				let dir = self.portal_dir_if_adding(pos);
+				let prev_dir = portal_dir_between(&self.portals[i-1], &self.portals[i]);
+				dir == prev_dir
 			}
+		} else {
+			false
 		}
 	}
 }
@@ -310,18 +306,18 @@ impl Maze {
 	fn neighbours(&self, pos: &LayerPos) -> Vec<LayerPos> {
 		let mut ns = Vec::new();
 		for dir in Dir::iter() {
-			match self.go(&pos.pos(), dir) {
-				Some(p) => if self[&p] == '.' { ns.push(p.on_layer(pos.layer)) },
-				None => {}
+			if let Some(p) = self.go(&pos.pos(), dir) {
+				if self[&p] == '.' {
+					ns.push(p.on_layer(pos.layer));
+				}
 			}
 		}
-		match self.portals.get(&pos.pos()) {
-			Some(p) => {
-				let q = p.jump(pos);
-				if q.layer >= 0 { ns.push(q); }
-			}
-			None => {}
+
+		if let Some(p) = self.portals.get(&pos.pos()) {
+			let q = p.jump(pos);
+			if q.layer >= 0 { ns.push(q); }
 		}
+
 		ns
 	}
 
@@ -330,25 +326,20 @@ impl Maze {
 		let mut stack = Vec::new();
 		stack.push( (self.start, Route::new()) );
 
-		loop {
-			match stack.pop() {
-				None => break,
-				Some((pos, route)) => {
-					if visual {
-						print!("{}{}", clear::All, cursor::Goto(1,1));
-						self.visualise(&route, &pos);
-					}
+		while let Some((pos, route)) = stack.pop() {
+			if visual {
+				print!("{}{}", clear::All, cursor::Goto(1,1));
+				self.visualise(&route, &pos);
+			}
 
-					if pos.layer == 0 && pos == self.end {
-						routes.push(route);
-					} else {
-						for n in self.neighbours(&pos) {
-							if !route.contains(&n) && !route.adding_would_create_loop(&n) {
-								let mut r = route.clone();
-								r.add(&n);
-								stack.push((n, r));
-							}
-						}
+			if pos.layer == 0 && pos == self.end {
+				routes.push(route);
+			} else {
+				for n in self.neighbours(&pos) {
+					if !route.contains(&n) && !route.adding_would_create_loop(&n) {
+						let mut r = route.clone();
+						r.add(&n);
+						stack.push((n, r));
 					}
 				}
 			}
